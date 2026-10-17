@@ -2,8 +2,9 @@ import SwiftUI
 import Charts
 
 struct LiveView: View {
-    @State private var currentCrowding = 6
+    @State private var snapshot = BusynessSnapshot.empty
     @State private var selectedReport: Int? = nil
+    @State private var isSubmitting = false
 
     var body: some View {
         NavigationStack {
@@ -11,7 +12,7 @@ struct LiveView: View {
                 Spacer(minLength: 0)
 
                 // Live Busyness Meter
-                BusynessMeterSection(currentCrowding: currentCrowding)
+                BusynessMeterSection(snapshot: snapshot)
 
                 // Best Time Today
                 DailyTrafficChartSection()
@@ -45,25 +46,54 @@ struct LiveView: View {
                 }
             }
         }
+        .task {
+            await refreshSnapshot()
+        }
     }
 
     private func handleReportSubmit(_ level: Int) {
+        guard !isSubmitting else { return }
         selectedReport = level
+        isSubmitting = true
+
+        Task {
+            defer { isSubmitting = false }
+            do {
+                try await BusynessService.submitReport(level: level)
+                await refreshSnapshot()
+            } catch {
+                print("Failed to submit crowd report: \(error)")
+            }
+        }
+    }
+
+    private func refreshSnapshot() async {
+        do {
+            snapshot = try await BusynessService.fetchCurrentBusyness()
+        } catch {
+            print("Failed to fetch busyness snapshot: \(error)")
+        }
     }
 }
 
 // MARK: - Busyness Meter Section
 struct BusynessMeterSection: View {
-    let currentCrowding: Int
+    let snapshot: BusynessSnapshot
+
+    private var updatedText: String {
+        guard let lastUpdated = snapshot.lastUpdated else { return "No recent reports" }
+        let relative = RelativeDateTimeFormatter().localizedString(for: lastUpdated, relativeTo: Date())
+        return "Updated \(relative) · \(snapshot.reportCount) recent report\(snapshot.reportCount == 1 ? "" : "s")"
+    }
 
     var body: some View {
         VStack(spacing: 10) {
             VStack(spacing: 8) {
-                Text("\(currentCrowding)/10 · \(AppColors.crowdingLabel(for: currentCrowding))")
+                Text("\(snapshot.averageLevel)/10 · \(AppColors.crowdingLabel(for: snapshot.averageLevel))")
                     .font(.system(size: 16, weight: .semibold))
                     .foregroundColor(.primary)
 
-                BusynessMeterGauge(value: Double(currentCrowding), maxValue: 10)
+                BusynessMeterGauge(value: Double(snapshot.averageLevel), maxValue: 10)
                     .frame(height: 100)
                     .frame(maxWidth: .infinity)
             }
@@ -72,7 +102,7 @@ struct BusynessMeterSection: View {
             .background(AppColors.contentSurface)
             .cornerRadius(20)
 
-            Text("Updated 2 min ago · 18 recent reports")
+            Text(updatedText)
                 .font(.caption)
                 .foregroundColor(.secondary)
                 .frame(maxWidth: .infinity, alignment: .center)
