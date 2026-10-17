@@ -15,10 +15,12 @@ alternative table and is not used by this API.
 ## HTTP API for the Swift app
 
 The Swift client calls this API over HTTPS; it must not connect directly to
-PostgreSQL or contain database credentials. The API verifies Supabase access
-tokens with Supabase Auth. The user must have a confirmed Supabase email matching
-an existing row in `users`; the API links that row to the Supabase user ID on
-first request. It never accepts a client-supplied `user_id`.
+PostgreSQL or contain database credentials. Signup and password login go through
+the API, which delegates authentication to Supabase Auth and accepts only
+`@uci.edu` email addresses. The API returns Supabase access and refresh tokens.
+Protected API calls validate the access token and require its account email to
+end in `@uci.edu`; the API creates a local `users` row on first request. Passwords
+are handled by Supabase Auth and are not written to the app's database.
 
 ### Configure and run
 
@@ -43,11 +45,46 @@ environment variables. Interactive API documentation is available at `/docs`.
 
 ### Endpoints
 
-All `/v1` endpoints require:
+Signup and login do not require an existing access token:
+
+```http
+POST /v1/auth/signup
+Content-Type: application/json
+```
+
+```json
+{"email": "student@uci.edu", "password": "your-password"}
+```
+
+If Supabase email confirmation is enabled, the response has
+`"confirmation_required": true`; the user must confirm their email, then log in.
+Otherwise a session may be returned immediately.
+
+```http
+POST /v1/auth/login
+Content-Type: application/json
+```
+
+Send the same JSON body to receive `access_token`, `refresh_token`, and user
+details. Pass the access token to protected attendance and crowd-report routes:
 
 ```http
 Authorization: Bearer <Supabase access token>
 ```
+
+When the access token expires, refresh it through the API:
+
+```http
+POST /v1/auth/refresh
+Content-Type: application/json
+```
+
+```json
+{"refresh_token": "<Supabase refresh token>"}
+```
+
+This returns a new access token and refresh token. The API rejects non-UCI
+emails for signup, login, refresh, and protected data routes.
 
 Record a visit (the server uses the current time):
 
