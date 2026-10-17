@@ -15,4 +15,9 @@ enum AuthService {
     static func accessToken() async throws -> String {
         try await ensureSession().accessToken
     }
+
+    /// The signed-in user's id, used to scope per-user storage paths.
+    static func currentUserId() async throws -> UUID {
+        try await ensureSession().user.id
+    }
 }

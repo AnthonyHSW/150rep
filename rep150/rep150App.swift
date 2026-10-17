@@ -17,6 +17,8 @@ struct rep150App: App {
                     try? await AuthService.ensureSession()
                 }
         }
-        .modelContainer(for: [WorkoutSession.self, ExerciseLog.self, ExerciseSet.self])
+        .modelContainer(
+            for: [WorkoutSession.self, ExerciseLog.self, ExerciseSet.self, WorkoutPhoto.self]
+        )
     }
 }

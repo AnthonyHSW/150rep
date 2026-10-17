@@ -124,6 +124,7 @@ struct ActiveWorkoutView: View {
                             // Only leave the workout once it's actually stored; otherwise the
                             // alert explains why and the session stays put.
                             if viewModel.finishWorkout() {
+                                viewModel.syncPhotos()
                                 dismiss()
                             }
                         },
@@ -195,6 +196,9 @@ struct ActiveWorkoutView: View {
                 .buttonStyle(.borderedProminent)
                 .tint(AppColors.brandBlue)
                 .padding(.top, 4)
+
+                WorkoutPhotoSectionView(session: viewModel.activeSession)
+                    .padding(.top, 8)
 
                 if viewModel.isRestTimerRunning {
                     Color.clear.frame(height: 72)

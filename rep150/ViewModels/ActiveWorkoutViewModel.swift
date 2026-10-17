@@ -161,6 +161,27 @@ final class ActiveWorkoutViewModel: Identifiable {
         return true
     }
 
+    /// Pushes this session's photos to Supabase once it's been finished.
+    ///
+    /// Deliberately fire-and-forget: uploading is best-effort, and the app has to stay usable
+    /// offline, so anything that doesn't land stays flagged pending for a later attempt
+    /// rather than holding the user on a finished workout. Captures the session and store
+    /// instead of `self` so the upload outlives this screen being dismissed.
+    func syncPhotos() {
+        let session = activeSession
+        guard session.photos.contains(where: \.needsUpload) else { return }
+
+        Task { [store] in
+            do {
+                try await WorkoutPhotoSyncService.syncPhotos(for: session, store: store)
+            } catch {
+                // Not surfaced: the workout is already saved locally, and a failed upload is
+                // a normal offline outcome rather than something the user must act on.
+                print("Workout photo sync deferred: \(error)")
+            }
+        }
+    }
+
     /// Leaves the workout without finishing it. The session stays `.active`, so the Workouts
     /// list keeps offering it under In Progress to resume — the same treatment a session the
     /// app was killed during gets. Pending edits are flushed on the way out so resuming

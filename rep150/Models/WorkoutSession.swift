@@ -9,6 +9,10 @@ enum SessionStatus: String, Codable {
 
 @Model
 final class WorkoutSession {
+    /// Hard cap on photos per session. Kept here so the limit has one definition rather than
+    /// being repeated across the picker, the counter, and the add guard.
+    static let maxPhotoCount = 5
+
     @Attribute(.unique) var id: UUID
     var title: String
     var startTime: Date
@@ -18,6 +22,11 @@ final class WorkoutSession {
 
     @Relationship(deleteRule: .cascade, inverse: \ExerciseLog.workoutSession)
     var exercises: [ExerciseLog]
+
+    /// Cascades the metadata rows only — the JPEGs they point at live on disk, so deleting a
+    /// session or a photo has to clear those separately (see `WorkoutStore`).
+    @Relationship(deleteRule: .cascade, inverse: \WorkoutPhoto.workoutSession)
+    var photos: [WorkoutPhoto] = []
 
     var status: SessionStatus {
         get { SessionStatus(rawValue: statusRaw) ?? .active }
@@ -38,6 +47,16 @@ final class WorkoutSession {
             count + exercise.sets.filter { $0.isCompleted }.count
         }
     }
+
+    /// Photos in the order they were added.
+    var orderedPhotos: [WorkoutPhoto] {
+        photos.sorted { $0.orderIndex < $1.orderIndex }
+    }
+
+    var canAddPhoto: Bool { photos.count < Self.maxPhotoCount }
+
+    /// How many more photos this session will accept — also the cap handed to the picker.
+    var remainingPhotoSlots: Int { max(0, Self.maxPhotoCount - photos.count) }
 
     init(
         id: UUID = UUID(),

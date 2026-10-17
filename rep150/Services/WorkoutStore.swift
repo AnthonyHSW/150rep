@@ -82,6 +82,12 @@ struct WorkoutStore {
     /// Deletes a session outright. The cascade rules on `WorkoutSession.exercises` and
     /// `ExerciseLog.sets` take its exercises and sets with it.
     func discard(_ session: WorkoutSession) throws {
+        // The photo rows cascade, but the JPEGs they name sit in the sandbox where no delete
+        // rule reaches them. Clear the files first or discarding a workout leaks them forever.
+        for photo in session.photos {
+            WorkoutPhotoFileManager.shared.deleteImage(filename: photo.filename)
+        }
+
         // Deliberately no `status = .discarded` write first — the object is being deleted,
         // so that write persists nothing and only muddies what the status means.
         modelContext.delete(session)
@@ -159,6 +165,51 @@ struct WorkoutStore {
         modelContext.delete(set)
         renumberSets(in: exerciseLog)
         try save()
+    }
+
+    // MARK: - Photos
+
+    /// Writes `data` into the sandbox and links a photo row to `session`.
+    ///
+    /// Throws rather than failing quietly so the caller can tell the user a photo didn't
+    /// save — silently dropping one looks identical to the picker misbehaving. The cap is
+    /// enforced here as well as in the picker, since the picker's limit is only advisory
+    /// once several selections are being processed in a row.
+    @discardableResult
+    func addPhoto(data: Data, to session: WorkoutSession) throws -> WorkoutPhoto? {
+        guard session.canAddPhoto else { return nil }
+
+        let filename = try WorkoutPhotoFileManager.shared.saveImage(data: data)
+        let photo = WorkoutPhoto(
+            filename: filename,
+            orderIndex: (session.photos.map(\.orderIndex).max() ?? -1) + 1
+        )
+        photo.workoutSession = session
+
+        do {
+            try save()
+        } catch {
+            // The row never landed, so the file it names is unreachable — don't leave it
+            // behind taking up space.
+            WorkoutPhotoFileManager.shared.deleteImage(filename: filename)
+            throw error
+        }
+        return photo
+    }
+
+    func removePhoto(_ photo: WorkoutPhoto, from session: WorkoutSession) throws {
+        WorkoutPhotoFileManager.shared.deleteImage(filename: photo.filename)
+        session.photos.removeAll { $0.id == photo.id }
+        modelContext.delete(photo)
+        normalizePhotoOrder(in: session)
+        try save()
+    }
+
+    /// Rewrites photo `orderIndex` to `0..<n`, closing the gap a deletion leaves behind.
+    func normalizePhotoOrder(in session: WorkoutSession) {
+        for (index, photo) in session.orderedPhotos.enumerated() {
+            photo.orderIndex = index
+        }
     }
 
     /// Rewrites `orderIndex` to `0..<n` in the current sort order.
