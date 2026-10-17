@@ -55,7 +55,7 @@ class CrowdLevelSubmissionResponse(BaseModel):
 
 class SupabaseIdentity(BaseModel):
     id: str
-    email: str
+    email: Optional[str] = None
 
 
 def get_database() -> Generator[db.Database, None, None]:
@@ -73,8 +73,8 @@ def get_database() -> Generator[db.Database, None, None]:
 async def verify_supabase_access_token(
     credentials: Optional[HTTPAuthorizationCredentials] = Depends(bearer_scheme),
 ) -> SupabaseIdentity:
-    supabase_url = os.environ.get("https://drjnsdrtqxyyjfgmrqzw.supabase.co", "").rstrip("/")
-    publishable_key = os.environ.get("sb_publishable_bFQ5tP7jTYYaz7K9UG9hEw6lj2jM1")
+    supabase_url = os.environ.get("SUPABASE_URL", "").rstrip("/")
+    publishable_key = os.environ.get("SUPABASE_PUBLISHABLE_KEY")
     if not supabase_url or not publishable_key:
         raise HTTPException(
             status_code=503,
@@ -122,30 +122,20 @@ async def verify_supabase_access_token(
             status_code=502, detail="Supabase Auth returned an invalid user response"
         )
     auth_user_id = auth_user.get("id")
-    email = auth_user.get("email")
-    if not isinstance(auth_user_id, str) or not isinstance(email, str):
+    if not isinstance(auth_user_id, str):
         raise HTTPException(
             status_code=502, detail="Supabase Auth returned an invalid user response"
         )
-    if not email or not auth_user.get("email_confirmed_at"):
-        raise HTTPException(
-            status_code=403, detail="A confirmed Supabase email is required"
-        )
+    email = auth_user.get("email")
 
-    return SupabaseIdentity(id=auth_user_id, email=email)
+    return SupabaseIdentity(id=auth_user_id, email=email if isinstance(email, str) else None)
 
 
 def get_authenticated_user_id(
     identity: SupabaseIdentity = Depends(verify_supabase_access_token),
     database: db.Database = Depends(get_database),
 ) -> int:
-    user_id = database.get_or_link_user_id(identity.id, identity.email)
-    if user_id is None:
-        raise HTTPException(
-            status_code=403,
-            detail="No unlinked local account matches the confirmed Supabase email",
-        )
-    return user_id
+    return database.get_or_create_user_id(identity.id, identity.email)
 
 
 @app.get("/health")

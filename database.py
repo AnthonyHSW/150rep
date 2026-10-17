@@ -36,9 +36,9 @@ class Database:
         self.cursor.execute('''
             CREATE TABLE IF NOT EXISTS users (
                 id SERIAL PRIMARY KEY,
-                name TEXT NOT NULL,
-                email TEXT UNIQUE NOT NULL,
-                password TEXT NOT NULL,
+                name TEXT,
+                email TEXT UNIQUE,
+                password TEXT,
                 auth_user_id UUID UNIQUE
             )
         ''')
@@ -61,37 +61,22 @@ class Database:
         ''')
         self.conn.commit()
 
-    def get_or_link_user_id(self, auth_user_id: str, email: str) -> Optional[int]:
-        """Resolve a Supabase user to a local account with the same email."""
+    def get_or_create_user_id(self, auth_user_id: str, email: Optional[str] = None) -> int:
+        """Resolve a Supabase user (anonymous or not) to a local account,
+        creating one on first sight. No email or prior signup is required."""
         self.cursor.execute(
             "SELECT id FROM users WHERE auth_user_id = %s",
             (auth_user_id,),
         )
-        linked_user = self.cursor.fetchone()
-        if linked_user:
-            return linked_user[0]
+        existing_user = self.cursor.fetchone()
+        if existing_user:
+            return existing_user[0]
 
         self.cursor.execute(
-            "SELECT id, auth_user_id FROM users "
-            "WHERE LOWER(email) = LOWER(%s) FOR UPDATE",
-            (email,),
+            "INSERT INTO users (auth_user_id, email) VALUES (%s, %s) RETURNING id",
+            (auth_user_id, email),
         )
-        matching_users = self.cursor.fetchall()
-        if len(matching_users) != 1:
-            self.conn.rollback()
-            return None
-
-        user_id, linked_auth_user_id = matching_users[0]
-        if linked_auth_user_id and str(linked_auth_user_id) != auth_user_id:
-            self.conn.rollback()
-            return None
-
-        if linked_auth_user_id is None:
-            self.cursor.execute(
-                "UPDATE users SET auth_user_id = %s "
-                "WHERE id = %s AND auth_user_id IS NULL",
-                (auth_user_id, user_id),
-            )
+        user_id = self.cursor.fetchone()[0]
         self.conn.commit()
         return user_id
 
