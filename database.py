@@ -107,7 +107,7 @@ class Database:
         if email.endswith("@uci.edu"):
             try:
                 self.cursor.execute('''
-                    INSERT INTO my_table (name, email, password)
+                    INSERT INTO users (name, email, password)
                     VALUES (%s, %s, %s)
                 ''', (name, email, password))
                 self.conn.commit()
