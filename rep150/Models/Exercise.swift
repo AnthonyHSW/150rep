@@ -6,4 +6,5 @@ struct Exercise: Identifiable, Hashable {
     let id: String
     let name: String
     let primaryMuscle: String
+    let imageName: String
 }

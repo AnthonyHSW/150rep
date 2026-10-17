@@ -23,9 +23,12 @@ struct ExercisePickerView: View {
                                 onSelect(exercise)
                                 dismiss()
                             } label: {
-                                Text(exercise.name)
-                                    .foregroundColor(.primary)
-                                    .frame(minHeight: 35, alignment: .leading)
+                                HStack(spacing: 12) {
+                                    ExerciseIconView(imageName: exercise.imageName, size: 32)
+                                    Text(exercise.name)
+                                        .foregroundColor(.primary)
+                                }
+                                .frame(minHeight: 35, alignment: .leading)
                             }
                         }
                     }

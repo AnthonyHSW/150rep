@@ -7,6 +7,8 @@ struct ExerciseCardHeaderView: View {
 
     var body: some View {
         HStack {
+            ExerciseIconView(imageName: exercise.imageName, size: 36)
+
             VStack(alignment: .leading, spacing: 2) {
                 Text(exercise.name)
                     .font(.system(size: 16, weight: .semibold))

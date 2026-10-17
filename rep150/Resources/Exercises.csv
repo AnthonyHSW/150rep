@@ -1,11 +1,11 @@
-id,name,primaryMuscle
-bench-press,Bench Press,Chest
-back-squat,Back Squat,Quads
-deadlift,Deadlift,Back
-overhead-press,Overhead Press,Shoulders
-barbell-row,Barbell Row,Back
-pull-up,Pull-Up,Back
-bicep-curl,Bicep Curl,Arms
-tricep-pushdown,Tricep Pushdown,Arms
-leg-press,Leg Press,Quads
-plank,Plank,Core
+id,name,primaryMuscle,imageName
+bench-press,Bench Press,Chest,bench-press
+back-squat,Back Squat,Quads,back-squat
+deadlift,Deadlift,Back,deadlift
+overhead-press,Overhead Press,Shoulders,overhead-press
+barbell-row,Barbell Row,Back,barbell-row
+pull-up,Pull-Up,Back,pull-up
+bicep-curl,Bicep Curl,Arms,bicep-curl
+tricep-pushdown,Tricep Pushdown,Arms,tricep-pushdown
+leg-press,Leg Press,Quads,leg-press
+plank,Plank,Core,plank

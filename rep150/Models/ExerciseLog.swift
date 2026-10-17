@@ -7,6 +7,7 @@ final class ExerciseLog {
     var exerciseId: String
     var name: String
     var primaryMuscle: String
+    var imageName: String = ""
     var orderIndex: Int
     var notes: String?
 
@@ -20,6 +21,7 @@ final class ExerciseLog {
         exerciseId: String,
         name: String,
         primaryMuscle: String,
+        imageName: String = "",
         orderIndex: Int,
         notes: String? = nil,
         sets: [ExerciseSet] = []
@@ -28,6 +30,7 @@ final class ExerciseLog {
         self.exerciseId = exerciseId
         self.name = name
         self.primaryMuscle = primaryMuscle
+        self.imageName = imageName
         self.orderIndex = orderIndex
         self.notes = notes
         self.sets = sets

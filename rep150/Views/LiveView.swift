@@ -5,6 +5,7 @@ struct LiveView: View {
     @State private var snapshot = BusynessSnapshot.empty
     @State private var selectedReport: Int? = nil
     @State private var isSubmitting = false
+    @State private var isRefreshing = false
 
     var body: some View {
         NavigationStack {
@@ -12,7 +13,11 @@ struct LiveView: View {
                 Spacer(minLength: 0)
 
                 // Live Busyness Meter
-                BusynessMeterSection(snapshot: snapshot)
+                BusynessMeterSection(
+                    snapshot: snapshot,
+                    isRefreshing: isRefreshing,
+                    onRefresh: handleForceRefresh
+                )
 
                 // Best Time Today
                 DailyTrafficChartSection()
@@ -74,11 +79,25 @@ struct LiveView: View {
             print("Failed to fetch busyness snapshot: \(error)")
         }
     }
+
+    private func handleForceRefresh() {
+        guard !isRefreshing else { return }
+        isRefreshing = true
+
+        Task {
+            defer { isRefreshing = false }
+            await refreshSnapshot()
+        }
+    }
 }
 
 // MARK: - Busyness Meter Section
 struct BusynessMeterSection: View {
     let snapshot: BusynessSnapshot
+    let isRefreshing: Bool
+    let onRefresh: () -> Void
+
+    private var hasData: Bool { snapshot.reportCount > 0 }
 
     private var updatedText: String {
         guard let lastUpdated = snapshot.lastUpdated else { return "No recent reports" }
@@ -89,11 +108,29 @@ struct BusynessMeterSection: View {
     var body: some View {
         VStack(spacing: 10) {
             VStack(spacing: 8) {
-                Text("\(snapshot.averageLevel)/10 · \(AppColors.crowdingLabel(for: snapshot.averageLevel))")
-                    .font(.system(size: 16, weight: .semibold))
-                    .foregroundColor(.primary)
+                HStack {
+                    if hasData {
+                        Text("\(snapshot.averageLevel)/10 · \(AppColors.crowdingLabel(for: snapshot.averageLevel))")
+                            .font(.system(size: 16, weight: .semibold))
+                            .foregroundColor(.primary)
+                    } else {
+                        Text("Gathering reports…")
+                            .font(.system(size: 16, weight: .semibold))
+                            .foregroundColor(.secondary)
+                    }
 
-                BusynessMeterGauge(value: Double(snapshot.averageLevel), maxValue: 10)
+                    Spacer()
+
+                    Button(action: onRefresh) {
+                        Image(systemName: "arrow.clockwise")
+                            .font(.subheadline)
+                            .foregroundColor(.secondary)
+                    }
+                    .disabled(isRefreshing)
+                    .opacity(isRefreshing ? 0.4 : 1.0)
+                }
+
+                BusynessMeterGauge(value: hasData ? Double(snapshot.averageLevel) : nil, maxValue: 10)
                     .frame(height: 100)
                     .frame(maxWidth: .infinity)
             }
@@ -101,6 +138,13 @@ struct BusynessMeterSection: View {
             .frame(maxWidth: .infinity)
             .background(AppColors.contentSurface)
             .cornerRadius(20)
+            .overlay {
+                if !hasData {
+                    ShimmerSweepOverlay(cornerRadius: 20)
+                        .transition(.opacity)
+                }
+            }
+            .animation(.easeInOut(duration: 0.25), value: hasData)
 
             Text(updatedText)
                 .font(.caption)
@@ -111,9 +155,77 @@ struct BusynessMeterSection: View {
     }
 }
 
+// MARK: - Busyness Shimmer (loading / no-data placeholder)
+/// A translucent glass panel with a soft diagonal band of light sweeping across it,
+/// shown over the gauge while there's no reading yet. Deliberately shows no numbers
+/// so it can't be mistaken for a real value; the content underneath (the arc track)
+/// still shows through, since the panel stays translucent.
+struct ShimmerSweepOverlay: View {
+    var cornerRadius: CGFloat = 16
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var sweepX: CGFloat = -0.6
+    @State private var loopTask: Task<Void, Never>?
+
+    var body: some View {
+        RoundedRectangle(cornerRadius: cornerRadius)
+            .fill(.ultraThinMaterial.opacity(0.55))
+            .overlay(
+                RoundedRectangle(cornerRadius: cornerRadius)
+                    .strokeBorder(Color.white.opacity(0.18), lineWidth: 1)
+            )
+            .overlay {
+                GeometryReader { geo in
+                    if reduceMotion {
+                        // Static, softly illuminated placeholder — no motion.
+                        RadialGradient(
+                            colors: [Color.white.opacity(0.18), .clear],
+                            center: .center,
+                            startRadius: 0,
+                            endRadius: max(geo.size.width, geo.size.height) * 0.6
+                        )
+                    } else {
+                        let diagonal = sqrt(geo.size.width * geo.size.width + geo.size.height * geo.size.height)
+
+                        LinearGradient(
+                            colors: [.clear, Color.white.opacity(0.35), .clear],
+                            startPoint: .top,
+                            endPoint: .bottom
+                        )
+                        .frame(width: geo.size.width * 0.4, height: diagonal * 1.4)
+                        .rotationEffect(.degrees(45))
+                        .blur(radius: 12)
+                        .offset(x: sweepX * geo.size.width, y: -sweepX * geo.size.height)
+                    }
+                }
+            }
+            .clipShape(RoundedRectangle(cornerRadius: cornerRadius))
+            .onAppear(perform: startLoop)
+            .onDisappear {
+                loopTask?.cancel()
+                loopTask = nil
+            }
+    }
+
+    private func startLoop() {
+        guard !reduceMotion, loopTask == nil else { return }
+        loopTask = Task {
+            while !Task.isCancelled {
+                sweepX = -0.6
+                withAnimation(.easeInOut(duration: 1.8)) {
+                    sweepX = 1.6
+                }
+                try? await Task.sleep(nanoseconds: 1_800_000_000)
+                try? await Task.sleep(nanoseconds: 450_000_000)
+            }
+        }
+    }
+}
+
 // MARK: - Busyness Meter Gauge
 struct BusynessMeterGauge: View {
-    let value: Double
+    /// `nil` means no reading yet — the track still renders, with liquid glass drifting over it.
+    let value: Double?
     let maxValue: Double
 
     var body: some View {
@@ -147,35 +259,39 @@ struct BusynessMeterGauge: View {
                         style: StrokeStyle(lineWidth: lineWidth, lineCap: .round)
                     )
 
-                // Progress indicator
-                EllipseArc(centerX: centerX, centerY: centerY, radiusX: radiusX, radiusY: radiusY, fraction: min(value / maxValue, 1.0))
-                    .stroke(
-                        AppColors.crowdingColor(for: Int(value)),
-                        style: StrokeStyle(lineWidth: lineWidth, lineCap: .round)
-                    )
+                if let value {
+                    // Progress indicator
+                    EllipseArc(centerX: centerX, centerY: centerY, radiusX: radiusX, radiusY: radiusY, fraction: min(value / maxValue, 1.0))
+                        .stroke(
+                            AppColors.crowdingColor(for: Int(value)),
+                            style: StrokeStyle(lineWidth: lineWidth, lineCap: .round)
+                        )
 
-                // Marker
-                let angle = Angle.degrees(180 - (value / maxValue) * 180)
-                let markerX = centerX + radiusX * cos(angle.radians)
-                let markerY = centerY - radiusY * sin(angle.radians)
-                Circle()
-                    .fill(AppColors.crowdingColor(for: Int(value)))
-                    .frame(width: 12, height: 12)
-                    .shadow(radius: 2)
-                    .position(x: markerX, y: markerY)
+                    // Marker
+                    let angle = Angle.degrees(180 - (value / maxValue) * 180)
+                    let markerX = centerX + radiusX * cos(angle.radians)
+                    let markerY = centerY - radiusY * sin(angle.radians)
+                    Circle()
+                        .fill(AppColors.crowdingColor(for: Int(value)))
+                        .frame(width: 12, height: 12)
+                        .shadow(radius: 2)
+                        .position(x: markerX, y: markerY)
+                }
             }
             .frame(width: width, height: height)
             .overlay(alignment: .bottom) {
-                // Wait time, overlaid inside the semicircle
-                VStack(spacing: 2) {
-                    Text("~3–5 min")
-                        .font(.system(size: 20, weight: .bold))
-                        .foregroundColor(.primary)
-                    Text("wait")
-                        .font(.caption2)
-                        .foregroundColor(.secondary)
+                if let value {
+                    // Wait time, overlaid inside the semicircle
+                    VStack(spacing: 2) {
+                        Text("~3–5 min")
+                            .font(.system(size: 20, weight: .bold))
+                            .foregroundColor(.primary)
+                        Text("wait")
+                            .font(.caption2)
+                            .foregroundColor(.secondary)
+                    }
+                    .padding(.bottom, 4)
                 }
-                .padding(.bottom, 4)
             }
         }
     }
@@ -216,38 +332,43 @@ struct EllipseArc: Shape {
 
 // MARK: - Daily Traffic Chart Section
 struct DailyTrafficChartSection: View {
-    let hourlyData = [
-        ChartData(hour: "12 AM", traffic: 2),
-        ChartData(hour: "2 AM", traffic: 1),
-        ChartData(hour: "4 AM", traffic: 1),
-        ChartData(hour: "6 AM", traffic: 3),
-        ChartData(hour: "8 AM", traffic: 6),
-        ChartData(hour: "10 AM", traffic: 8),
-        ChartData(hour: "12 PM", traffic: 9),
-        ChartData(hour: "2 PM", traffic: 7),
-        ChartData(hour: "4 PM", traffic: 8),
-        ChartData(hour: "6 PM", traffic: 6),
-        ChartData(hour: "8 PM", traffic: 3),
-        ChartData(hour: "10 PM", traffic: 2),
-    ]
+    /// No historical data is collected yet, so this draws a generic bell-curve
+    /// shape (peaking around midday) rather than implying real measurements.
+    private var placeholderHourlyData: [ChartData] {
+        let peakHour: Double = 13
+        let sigma: Double = 4.5
+
+        return stride(from: 0, through: 22, by: 2).map { hour in
+            let diff = Double(hour) - peakHour
+            let gaussian = exp(-(diff * diff) / (2 * sigma * sigma))
+            let traffic = 1 + Int((9 * gaussian).rounded())
+            return ChartData(hour: Self.label(forHour: hour), traffic: traffic)
+        }
+    }
+
+    private static func label(forHour hour: Int) -> String {
+        let period = hour < 12 ? "AM" : "PM"
+        let displayHour = hour % 12 == 0 ? 12 : hour % 12
+        return "\(displayHour) \(period)"
+    }
 
     var body: some View {
-        VStack(alignment: .center, spacing: 12) {
-            Text("Usually quieter after 8 PM")
+        VStack(alignment: .center, spacing: 4) {
+            Text("Typical daily pattern")
                 .font(.system(size: 16, weight: .semibold))
                 .foregroundColor(.primary)
 
+            Text("Placeholder — not based on real data yet")
+                .font(.caption2)
+                .foregroundColor(.secondary)
+
             VStack(spacing: 8) {
-                Chart(hourlyData) { data in
+                Chart(placeholderHourlyData) { data in
                     BarMark(
                         x: .value("Hour", data.hour),
                         y: .value("Traffic", data.traffic)
                     )
-                    .foregroundStyle(
-                        data.hour == "6 PM"
-                            ? AppColors.brandBlue.opacity(0.8)
-                            : AppColors.brandBlue.opacity(0.3)
-                    )
+                    .foregroundStyle(AppColors.brandBlue.opacity(0.25))
                 }
                 .chartXAxis {
                     AxisMarks(values: .stride(by: 2)) { value in
@@ -264,20 +385,18 @@ struct DailyTrafficChartSection: View {
                 }
                 .frame(height: 140)
 
-                HStack(spacing: 16) {
-                    Label("Typical traffic", systemImage: "square.fill")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-
-                    Label("Now", systemImage: "circle.fill")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                }
-                .frame(maxWidth: .infinity, alignment: .center)
+                Label("Typical traffic (placeholder)", systemImage: "square.fill")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .center)
             }
             .padding(16)
             .background(AppColors.contentSurface)
             .cornerRadius(20)
+            .overlay {
+                ShimmerSweepOverlay(cornerRadius: 20)
+            }
+            .padding(.top, 8)
         }
     }
 }

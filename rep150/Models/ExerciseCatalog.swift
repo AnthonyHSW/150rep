@@ -29,8 +29,8 @@ struct ExerciseCatalog {
         return lines.compactMap { line in
             guard !line.isEmpty else { return nil }
             let fields = line.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }
-            guard fields.count == 3 else { return nil }
-            return Exercise(id: fields[0], name: fields[1], primaryMuscle: fields[2])
+            guard fields.count == 4 else { return nil }
+            return Exercise(id: fields[0], name: fields[1], primaryMuscle: fields[2], imageName: fields[3])
         }
     }
 }

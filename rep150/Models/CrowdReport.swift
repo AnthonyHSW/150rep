@@ -17,3 +17,14 @@ struct CrowdReport: Codable {
 struct CrowdReportInsert: Encodable {
     let level: Int
 }
+
+/// Response body from `GET /v1/crowd-level`.
+struct CrowdLevelResponse: Decodable {
+    let level: Double
+    let reportCount: Int
+
+    enum CodingKeys: String, CodingKey {
+        case level
+        case reportCount = "report_count"
+    }
+}

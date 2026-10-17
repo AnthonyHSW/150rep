@@ -19,9 +19,22 @@
 		A7973FFE3083389E001BA3DB /* rep150.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = rep150.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		A77F01D13083F416000B39D8 /* Exceptions for "rep150" folder in "rep150" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = A7973FFD3083389E001BA3DB /* rep150 */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
+
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		A79740003083389E001BA3DB /* rep150 */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				A77F01D13083F416000B39D8 /* Exceptions for "rep150" folder in "rep150" target */,
+			);
 			path = rep150;
 			sourceTree = "<group>";
 		};
@@ -280,6 +293,7 @@
 				DEVELOPMENT_TEAM = 7Q2UN5YS5T;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = rep150/Info.plist;
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -312,6 +326,7 @@
 				DEVELOPMENT_TEAM = 7Q2UN5YS5T;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = rep150/Info.plist;
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;

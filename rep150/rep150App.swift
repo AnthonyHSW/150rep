@@ -13,6 +13,9 @@ struct rep150App: App {
     var body: some Scene {
         WindowGroup {
             ContentView()
+                .task {
+                    try? await AuthService.ensureSession()
+                }
         }
         .modelContainer(for: [WorkoutSession.self, ExerciseLog.self, ExerciseSet.self])
     }

@@ -10,29 +10,37 @@ struct BusynessSnapshot {
     static let empty = BusynessSnapshot(averageLevel: 0, reportCount: 0, lastUpdated: nil)
 }
 
-/// Reads and writes crowd reports against the Supabase `crowd_reports` table.
+struct BackendError: LocalizedError {
+    let statusCode: Int
+    let body: String
+
+    var errorDescription: String? {
+        "Backend returned \(statusCode): \(body)"
+    }
+}
+
+/// Reads the current busyness from the backend API; writes still go straight to Supabase.
 struct BusynessService {
-    /// Only reports within this window count toward the current reading.
-    static let recentWindow: TimeInterval = 60 * 60
-
     static func fetchCurrentBusyness() async throws -> BusynessSnapshot {
-        let since = Date().addingTimeInterval(-recentWindow)
+        let token = try await AuthService.accessToken()
 
-        let reports: [CrowdReport] = try await supabase
-            .from("crowd_reports")
-            .select()
-            .gte("created_at", value: since)
-            .order("created_at", ascending: false)
-            .execute()
-            .value
+        var request = URLRequest(url: URL(string: "/v1/crowd-level", relativeTo: APIConfig.baseURL)!)
+        request.httpMethod = "GET"
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
 
-        guard !reports.isEmpty else { return .empty }
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard let httpResponse = response as? HTTPURLResponse, (200..<300).contains(httpResponse.statusCode) else {
+            let status = (response as? HTTPURLResponse)?.statusCode ?? -1
+            throw BackendError(statusCode: status, body: String(data: data, encoding: .utf8) ?? "<non-utf8 body>")
+        }
 
-        let average = reports.reduce(0) { $0 + $1.level } / reports.count
+        let decoded = try JSONDecoder().decode(CrowdLevelResponse.self, from: data)
+        guard decoded.reportCount > 0 else { return .empty }
+
         return BusynessSnapshot(
-            averageLevel: average,
-            reportCount: reports.count,
-            lastUpdated: reports.first?.createdAt
+            averageLevel: Int(decoded.level.rounded()),
+            reportCount: decoded.reportCount,
+            lastUpdated: Date()
         )
     }
 

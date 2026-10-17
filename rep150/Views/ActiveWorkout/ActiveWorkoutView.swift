@@ -145,30 +145,37 @@ struct ActiveWorkoutView: View {
                     viewModel.addExercise(exercise)
                 }
             }
-            .confirmationDialog(
-                "Finish this workout?",
-                isPresented: $isShowingFinishConfirm,
-                titleVisibility: .visible
-            ) {
-                Button("Finish Workout") {
-                    viewModel.finishWorkout()
-                    dismiss()
+            .overlay {
+                if isShowingFinishConfirm {
+                    WorkoutConfirmPopup(
+                        title: "Finish this workout?",
+                        message: nil,
+                        confirmLabel: "Finish",
+                        isDestructive: false,
+                        onConfirm: {
+                            viewModel.finishWorkout()
+                            isShowingFinishConfirm = false
+                            dismiss()
+                        },
+                        onCancel: { isShowingFinishConfirm = false }
+                    )
+                } else if isShowingDiscardConfirm {
+                    WorkoutConfirmPopup(
+                        title: "Discard this workout?",
+                        message: "This will delete this session.",
+                        confirmLabel: "Discard",
+                        isDestructive: true,
+                        onConfirm: {
+                            viewModel.discardWorkout()
+                            isShowingDiscardConfirm = false
+                            dismiss()
+                        },
+                        onCancel: { isShowingDiscardConfirm = false }
+                    )
                 }
-                Button("Cancel", role: .cancel) {}
             }
-            .confirmationDialog(
-                "Discard this workout?",
-                isPresented: $isShowingDiscardConfirm,
-                titleVisibility: .visible
-            ) {
-                Button("Discard Workout", role: .destructive) {
-                    viewModel.discardWorkout()
-                    dismiss()
-                }
-                Button("Cancel", role: .cancel) {}
-            } message: {
-                Text("This will delete all logged sets for this session.")
-            }
+            .animation(.easeOut(duration: 0.15), value: isShowingFinishConfirm)
+            .animation(.easeOut(duration: 0.15), value: isShowingDiscardConfirm)
         }
     }
 

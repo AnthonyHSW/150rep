@@ -75,6 +75,7 @@ final class ActiveWorkoutViewModel {
             exerciseId: exercise.id,
             name: exercise.name,
             primaryMuscle: exercise.primaryMuscle,
+            imageName: exercise.imageName,
             orderIndex: activeSession.exercises.count
         )
 
