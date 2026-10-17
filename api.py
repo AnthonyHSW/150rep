@@ -14,7 +14,7 @@ from pydantic import BaseModel, Field
 import database as db
 import query
 
-load_dotenv()
+load_dotenv(override=True)
 
 app = FastAPI(title="150rep Workout API", version="1.0.0")
 bearer_scheme = HTTPBearer(auto_error=False)
@@ -224,4 +224,7 @@ def read_crowd_level(
     database: db.Database = Depends(get_database),
 ) -> CrowdLevelResponse:
     level, report_count = query.get_crowd_level(database)
+
+    
+
     return CrowdLevelResponse(level=level, report_count=report_count)

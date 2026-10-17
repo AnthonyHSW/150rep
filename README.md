@@ -125,6 +125,31 @@ Authorization: Bearer <Supabase access token>
 `level` is the arithmetic mean of reporting users' current levels and can be a
 decimal. With no reports, the response is `{"level": null, "report_count": 0}`.
 
+For UI testing, run [`seed_demo_crowd_reports.sql`](./seed_demo_crowd_reports.sql)
+in a development/test Supabase project after running `api_migration.sql`. It
+creates two synthetic users and repeatably sets their reports to 4 and 6, so the
+response becomes `{"level": 5.0, "report_count": 2}` if there are no other votes.
+Do not run this in production: these sample reports are included in the global
+average. To remove the sample rows, run:
+
+```sql
+DELETE FROM public.crowd_reports
+WHERE user_id IN (
+    SELECT id
+    FROM public.users
+    WHERE email IN (
+        'demo-crowd-voter-1@example.invalid',
+        'demo-crowd-voter-2@example.invalid'
+    )
+);
+
+DELETE FROM public.users
+WHERE email IN (
+    'demo-crowd-voter-1@example.invalid',
+    'demo-crowd-voter-2@example.invalid'
+);
+```
+
 ### Optional demo attendance data
 
 To populate the current Los Angeles calendar week with four visits for visual
