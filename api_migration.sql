@@ -16,6 +16,14 @@ CREATE INDEX IF NOT EXISTS user_data_user_timestamp_idx
     ON user_data (user_id, timestamp)
     WHERE presence = TRUE;
 
+CREATE TABLE IF NOT EXISTS public.crowd_reports (
+    user_id INTEGER PRIMARY KEY REFERENCES public.users(id) ON DELETE CASCADE,
+    level SMALLINT NOT NULL CHECK (level BETWEEN 1 AND 10),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+ALTER TABLE public.crowd_reports ENABLE ROW LEVEL SECURITY;
+
 DO $$
 BEGIN
     IF EXISTS (

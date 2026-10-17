@@ -9,7 +9,7 @@ import httpx
 from fastapi import Depends, FastAPI, HTTPException, Query
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from dotenv import load_dotenv
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 import database as db
 import query
@@ -37,6 +37,20 @@ class AttendanceDay(BaseModel):
 class AttendanceCalendarResponse(BaseModel):
     timezone: str
     days: List[AttendanceDay]
+
+
+class CrowdLevelCreate(BaseModel):
+    level: int = Field(strict=True, ge=1, le=10)
+
+
+class CrowdLevelResponse(BaseModel):
+    level: Optional[float]
+    report_count: int
+
+
+class CrowdLevelSubmissionResponse(BaseModel):
+    level: int
+    updated_at: datetime
 
 
 class SupabaseIdentity(BaseModel):
@@ -193,3 +207,31 @@ def read_attendance_calendar(
         timezone=timezone,
         days=[AttendanceDay(date=day, visits=visits) for day, visits in rows],
     )
+
+
+@app.post(
+    "/v1/crowd-reports",
+    response_model=CrowdLevelSubmissionResponse,
+)
+def submit_crowd_level(
+    payload: CrowdLevelCreate,
+    user_id: int = Depends(get_authenticated_user_id),
+    database: db.Database = Depends(get_database),
+) -> CrowdLevelSubmissionResponse:
+    updated_at = query.submit_crowd_level(database, user_id, payload.level)
+    return CrowdLevelSubmissionResponse(
+        level=payload.level,
+        updated_at=updated_at,
+    )
+
+
+@app.get(
+    "/v1/crowd-level",
+    response_model=CrowdLevelResponse,
+    dependencies=[Depends(get_authenticated_user_id)],
+)
+def read_crowd_level(
+    database: db.Database = Depends(get_database),
+) -> CrowdLevelResponse:
+    level, report_count = query.get_crowd_level(database)
+    return CrowdLevelResponse(level=level, report_count=report_count)

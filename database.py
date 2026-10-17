@@ -146,6 +146,29 @@ class Database:
         ''', (start_date, end_date, user_id, timezone, timezone))
         return self.cursor.fetchall()
 
+    def submit_crowd_level(self, user_id: int, level: int) -> datetime:
+        """Create or update this user's current crowd-level report."""
+        self.cursor.execute('''
+            INSERT INTO crowd_reports (user_id, level, updated_at)
+            VALUES (%s, %s, CURRENT_TIMESTAMP)
+            ON CONFLICT (user_id)
+            DO UPDATE SET level = EXCLUDED.level,
+                          updated_at = CURRENT_TIMESTAMP
+            RETURNING updated_at
+        ''', (user_id, level))
+        updated_at = self.cursor.fetchone()[0]
+        self.conn.commit()
+        return updated_at
+
+    def get_crowd_level(self) -> Tuple[Optional[float], int]:
+        """Return the average current crowd report and number of reporting users."""
+        self.cursor.execute('''
+            SELECT AVG(level)::FLOAT, COUNT(*)
+            FROM crowd_reports
+        ''')
+        average, report_count = self.cursor.fetchone()
+        return average, report_count
+
     def insert_user_login(self, name, email, password):
         """Insert a local account for a UCI email address."""
         if not email.endswith("@uci.edu"):

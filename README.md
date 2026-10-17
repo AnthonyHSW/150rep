@@ -89,6 +89,42 @@ The response includes every date in the range, including days with no visits:
 The date range is limited to 366 days. `GET /health` is a public process-health
 check and does not verify database connectivity.
 
+### Crowd level
+
+Run the updated [`api_migration.sql`](./api_migration.sql) in Supabase SQL Editor
+to create the private `crowd_reports` table. Row-level security is enabled, so
+the Swift app should call the API rather than querying this table through
+PostgREST.
+
+Submit or update the signed-in user's current crowd rating:
+
+```http
+POST /v1/crowd-reports
+Authorization: Bearer <Supabase access token>
+Content-Type: application/json
+```
+
+```json
+{"level": 4}
+```
+
+Levels must be integers from 1 through 10. Each user has one current report;
+submitting again updates that user's level instead of adding another vote.
+
+Get the average of current reports:
+
+```http
+GET /v1/crowd-level
+Authorization: Bearer <Supabase access token>
+```
+
+```json
+{"level": 4.0, "report_count": 3}
+```
+
+`level` is the arithmetic mean of reporting users' current levels and can be a
+decimal. With no reports, the response is `{"level": null, "report_count": 0}`.
+
 ### Optional demo attendance data
 
 To populate the current Los Angeles calendar week with four visits for visual
