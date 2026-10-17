@@ -73,8 +73,8 @@ def get_database() -> Generator[db.Database, None, None]:
 async def verify_supabase_access_token(
     credentials: Optional[HTTPAuthorizationCredentials] = Depends(bearer_scheme),
 ) -> SupabaseIdentity:
-    supabase_url = os.environ.get("SUPABASE_URL", "").rstrip("/")
-    publishable_key = os.environ.get("SUPABASE_PUBLISHABLE_KEY")
+    supabase_url = os.environ.get("https://drjnsdrtqxyyjfgmrqzw.supabase.co", "").rstrip("/")
+    publishable_key = os.environ.get("sb_publishable_bFQ5tP7jTYYaz7K9UG9hEw6lj2jM1")
     if not supabase_url or not publishable_key:
         raise HTTPException(
             status_code=503,
