@@ -24,11 +24,11 @@ struct ExercisePickerView: View {
                                 dismiss()
                             } label: {
                                 HStack(spacing: 12) {
-                                    ExerciseIconView(imageName: exercise.imageName, size: 32)
+                                    ExerciseIconView(imageName: exercise.imageName, size: 52)
                                     Text(exercise.name)
                                         .foregroundColor(.primary)
                                 }
-                                .frame(minHeight: 35, alignment: .leading)
+                                .frame(minHeight: 60, alignment: .leading)
                             }
                         }
                     }

@@ -28,6 +28,11 @@ final class WorkoutSession {
         exercises.reduce(0.0) { $0 + $1.totalVolume }
     }
 
+    /// Elapsed time of the session; measured against now while it's still running.
+    var duration: TimeInterval {
+        (endTime ?? Date()).timeIntervalSince(startTime)
+    }
+
     var totalCompletedSets: Int {
         exercises.reduce(0) { count, exercise in
             count + exercise.sets.filter { $0.isCompleted }.count

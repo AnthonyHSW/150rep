@@ -20,6 +20,11 @@ struct ContentView: View {
                     Label("Workouts", systemImage: "dumbbell")
                 }
 
+            HistoryView()
+                .tabItem {
+                    Label("History", systemImage: "clock.arrow.circlepath")
+                }
+
             ProfileView()
                 .tabItem {
                     Label("Profile", systemImage: "person.crop.circle")
