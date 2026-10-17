@@ -20,7 +20,7 @@ struct LiveView: View {
                 )
 
                 // Best Time Today
-                DailyTrafficChartSection()
+                DailyTrafficChartSection(snapshot: snapshot)
 
                 // Quick Crowd Report
                 CrowdReportSection(
@@ -332,71 +332,139 @@ struct EllipseArc: Shape {
 
 // MARK: - Daily Traffic Chart Section
 struct DailyTrafficChartSection: View {
-    /// No historical data is collected yet, so this draws a generic bell-curve
-    /// shape (peaking around midday) rather than implying real measurements.
-    private var placeholderHourlyData: [ChartData] {
-        let peakHour: Double = 13
-        let sigma: Double = 4.5
+    /// The live reading, overlaid on the typical curve so the two can be compared.
+    let snapshot: BusynessSnapshot
 
-        return stride(from: 0, through: 22, by: 2).map { hour in
-            let diff = Double(hour) - peakHour
-            let gaussian = exp(-(diff * diff) / (2 * sigma * sigma))
-            let traffic = 1 + Int((9 * gaussian).rounded())
-            return ChartData(hour: Self.label(forHour: hour), traffic: traffic)
+    /// The curve for today. Hardcoded sample data for now — see `DailyBusyness.sample`.
+    private var busyness: DailyBusyness {
+        .sample(for: DailyBusyness.day(for: Date()))
+    }
+
+    /// The current hour's bar, when there is a live reading to put over it. Both the bucket
+    /// and the reading have to exist: nothing is "now" outside the reported hours, and with
+    /// no reports in there's no actual to compare against.
+    private var actualBar: (label: String, value: Double)? {
+        guard snapshot.reportCount > 0,
+              let bar = hourlyTraffic.first(where: { $0.isNow })
+        else { return nil }
+        return (bar.label, Double(snapshot.averageLevel))
+    }
+
+    /// One bar per reported hour, with the bucket covering the current time marked so it
+    /// can be picked out of the row.
+    private var hourlyTraffic: [HourlyTraffic] {
+        let curve = busyness
+        let nowIndex = curve.index(forHourOf: Date())
+
+        return curve.values.enumerated().map { index, value in
+            HourlyTraffic(
+                id: index,
+                label: Self.label(forHour: curve.hour(at: index)),
+                value: value,
+                isNow: index == nowIndex
+            )
         }
     }
 
+    private var weekdayName: String {
+        Date().formatted(.dateTime.weekday(.wide))
+    }
+
+    /// Compact enough that every third hour can be labelled without the axis colliding.
     private static func label(forHour hour: Int) -> String {
-        let period = hour < 12 ? "AM" : "PM"
         let displayHour = hour % 12 == 0 ? 12 : hour % 12
-        return "\(displayHour) \(period)"
+        return "\(displayHour)\(hour < 12 ? "a" : "p")"
     }
 
     var body: some View {
         VStack(alignment: .center, spacing: 4) {
-            Text("Typical daily pattern")
+            Text("Typical \(weekdayName) pattern")
                 .font(.system(size: 16, weight: .semibold))
                 .foregroundColor(.primary)
 
-            Text("Placeholder — not based on real data yet")
+            Text("Sample data — live service not wired up yet")
                 .font(.caption2)
                 .foregroundColor(.secondary)
 
             VStack(spacing: 8) {
-                Chart(placeholderHourlyData) { data in
-                    BarMark(
-                        x: .value("Hour", data.hour),
-                        y: .value("Traffic", data.traffic)
-                    )
-                    .foregroundStyle(AppColors.brandBlue.opacity(0.25))
+                Chart {
+                    // Both series are drawn unstacked: they share the current hour's x
+                    // position, and the default stacking would sit the live reading on top
+                    // of the typical bar — showing their sum rather than the comparison.
+                    ForEach(hourlyTraffic) { bar in
+                        BarMark(
+                            x: .value("Hour", bar.label),
+                            y: .value("Typical", bar.value),
+                            stacking: .unstacked
+                        )
+                        .foregroundStyle(
+                            bar.isNow ? AppColors.brandBlue.opacity(0.55) : AppColors.brandBlue.opacity(0.25)
+                        )
+                    }
+
+                    // The live reading, drawn narrow and solid over the current hour's bar so
+                    // the gap between the two is the "busier/quieter than usual" read.
+                    if let actualBar {
+                        BarMark(
+                            x: .value("Hour", actualBar.label),
+                            y: .value("Actual", actualBar.value),
+                            width: .fixed(6),
+                            stacking: .unstacked
+                        )
+                        .foregroundStyle(AppColors.crowdingColor(for: snapshot.averageLevel))
+                        .cornerRadius(3)
+                    }
                 }
+                // Both series are crowd levels, so pin the axis to that range rather than
+                // letting it rescale — otherwise the comparison shifts as the live value moves.
+                .chartYScale(domain: 0...10)
                 .chartXAxis {
-                    AxisMarks(values: .stride(by: 2)) { value in
+                    // 18 bars is too many to label individually; every third hour reads
+                    // cleanly and still lands on the first and last bar.
+                    AxisMarks(values: .stride(by: 3)) { value in
                         if let hour = value.as(String.self) {
                             AxisValueLabel(hour, anchor: .top)
                         }
                     }
                 }
                 .chartYAxis {
-                    AxisMarks(values: [0, 5, 10]) { value in
+                    AxisMarks { _ in
                         AxisGridLine()
                         AxisValueLabel(anchor: .leading)
                     }
                 }
                 .frame(height: 140)
 
-                Label("Typical traffic (placeholder)", systemImage: "square.fill")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-                    .frame(maxWidth: .infinity, alignment: .center)
+                HStack(spacing: 14) {
+                    legendItem("Typical", color: AppColors.brandBlue.opacity(0.25))
+
+                    if let actualBar {
+                        legendItem(
+                            "Now · \(Int(actualBar.value))/10",
+                            color: AppColors.crowdingColor(for: snapshot.averageLevel)
+                        )
+                    }
+                }
+                .font(.caption)
+                .frame(maxWidth: .infinity, alignment: .center)
             }
             .padding(16)
             .background(AppColors.contentSurface)
             .cornerRadius(20)
-            .overlay {
-                ShimmerSweepOverlay(cornerRadius: 20)
-            }
             .padding(.top, 8)
+        }
+    }
+
+    /// A colour swatch and its caption. Built by hand rather than with `Label`, whose icon
+    /// doesn't pick up a tint from `foregroundStyle` here — both swatches came out grey.
+    private func legendItem(_ title: String, color: Color) -> some View {
+        HStack(spacing: 5) {
+            RoundedRectangle(cornerRadius: 2)
+                .fill(color)
+                .frame(width: 10, height: 10)
+
+            Text(title)
+                .foregroundColor(.secondary)
         }
     }
 }
@@ -459,10 +527,14 @@ struct CrowdReportSection: View {
 }
 
 // MARK: - Data Models
-struct ChartData: Identifiable {
-    let id = UUID()
-    let hour: String
-    let traffic: Int
+/// One bar of the daily pattern chart.
+struct HourlyTraffic: Identifiable {
+    /// Index into the day's reported hours, so bars keep a stable identity as values change.
+    let id: Int
+    let label: String
+    let value: Double
+    /// Whether this bucket covers the current time.
+    let isNow: Bool
 }
 
 #Preview {
