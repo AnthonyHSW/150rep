@@ -88,3 +88,13 @@ The response includes every date in the range, including days with no visits:
 
 The date range is limited to 366 days. `GET /health` is a public process-health
 check and does not verify database connectivity.
+
+### Optional demo attendance data
+
+To populate the current Los Angeles calendar week with four visits for visual
+testing, run [`seed_demo_attendance.sql`](./seed_demo_attendance.sql) in the
+Supabase SQL editor after replacing `REPLACE_WITH_TARGET_EMAIL` with the email
+for an existing `users` row. The script adds only the visits needed to reach
+four; it does not delete or label them as demo data. Prefer a dedicated test
+account, and do not run it for a real user's account unless you intend to add
+these records to their attendance history.
