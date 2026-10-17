@@ -38,6 +38,11 @@ def get_crowd_level(database: db.Database) -> Tuple[Optional[float], int]:
     return database.get_crowd_level()
 
 
+def get_crowd_schedule_values(database: db.Database, day_of_week: int) -> List[float]:
+    """Get ordered schedule values scaled to the 0-10 range."""
+    return database.get_crowd_schedule_values(day_of_week)
+
+
 def insert_user_login(
     database: db.Database, name: str, email: str, password: str
 ) -> bool:

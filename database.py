@@ -146,13 +146,29 @@ class Database:
         return updated_at
 
     def get_crowd_level(self) -> Tuple[Optional[float], int]:
-        """Return the average current crowd report and number of reporting users."""
+        """Average up to 10 most recently updated reports from the last 30 minutes."""
         self.cursor.execute('''
-            SELECT AVG(level)::FLOAT, COUNT(*)
-            FROM crowd_reports
+            SELECT AVG(recent_reports.level)::FLOAT, COUNT(*)
+            FROM (
+                SELECT level
+                FROM crowd_reports
+                WHERE updated_at >= CURRENT_TIMESTAMP - INTERVAL '30 minutes'
+                ORDER BY updated_at DESC, user_id
+                LIMIT 10
+            ) AS recent_reports
         ''')
         average, report_count = self.cursor.fetchone()
         return average, report_count
+
+    def get_crowd_schedule_values(self, day_of_week: int) -> List[float]:
+        """Return a day's illustrative schedule levels scaled from 0-100 to 0-10."""
+        self.cursor.execute('''
+            SELECT level / 10.0
+            FROM public.crowd_schedule
+            WHERE day_of_week = %s
+            ORDER BY hour_of_day
+        ''', (day_of_week,))
+        return [float(row[0]) for row in self.cursor.fetchall()]
 
     def insert_user_login(self, name, email, password):
         """Insert a local account for a UCI email address."""

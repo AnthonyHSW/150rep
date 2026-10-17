@@ -53,6 +53,11 @@ class CrowdLevelSubmissionResponse(BaseModel):
     updated_at: datetime
 
 
+class CrowdScheduleResponse(BaseModel):
+    e: int
+    values: List[float]
+
+
 class SupabaseIdentity(BaseModel):
     id: str
     email: Optional[str] = None
@@ -141,6 +146,22 @@ def get_authenticated_user_id(
 @app.get("/health")
 def health() -> dict:
     return {"status": "ok"}
+
+
+@app.get("/v1/crowd-schedule", response_model=CrowdScheduleResponse)
+def read_crowd_schedule(
+    e: int = Query(ge=0, le=6),
+    database: db.Database = Depends(get_database),
+) -> CrowdScheduleResponse:
+    # Frontend numbering is Saturday=0, Sunday=1, Monday=2, ..., Friday=6.
+    day_of_week = {0: 6, 1: 7}.get(e, e - 1)
+    values = query.get_crowd_schedule_values(database, day_of_week)
+    if len(values) != 18:
+        raise HTTPException(
+            status_code=503,
+            detail="Crowd schedule is not seeded with all 18 hourly values for this day",
+        )
+    return CrowdScheduleResponse(e=e, values=values)
 
 
 @app.post(

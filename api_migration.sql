@@ -30,6 +30,10 @@ CREATE TABLE IF NOT EXISTS public.crowd_reports (
 
 ALTER TABLE public.crowd_reports ENABLE ROW LEVEL SECURITY;
 
+CREATE INDEX IF NOT EXISTS crowd_reports_updated_at_idx
+    ON public.crowd_reports (updated_at DESC)
+    INCLUDE (level);
+
 DO $$
 BEGIN
     IF EXISTS (
