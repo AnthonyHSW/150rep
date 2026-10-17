@@ -76,6 +76,10 @@ struct LiveView: View {
         do {
             snapshot = try await BusynessService.fetchCurrentBusyness()
         } catch {
+            // Drop the old reading rather than leaving it on screen. Keeping it would show a
+            // stale count and level as though they were current, which is the one thing the
+            // meter must not do when it has just failed to confirm them.
+            snapshot = .empty
             print("Failed to fetch busyness snapshot: \(error)")
         }
     }
@@ -99,10 +103,13 @@ struct BusynessMeterSection: View {
 
     private var hasData: Bool { snapshot.reportCount > 0 }
 
+    /// `lastUpdated` is when this device last fetched, not when anyone last reported — the
+    /// endpoint returns no timestamp — so this says "Checked", not "Updated". The count is
+    /// likewise every standing report, not just the fresh ones, so it isn't called "recent".
     private var updatedText: String {
-        guard let lastUpdated = snapshot.lastUpdated else { return "No recent reports" }
+        guard let lastUpdated = snapshot.lastUpdated else { return "No reports yet" }
         let relative = RelativeDateTimeFormatter().localizedString(for: lastUpdated, relativeTo: Date())
-        return "Updated \(relative) · \(snapshot.reportCount) recent report\(snapshot.reportCount == 1 ? "" : "s")"
+        return "Checked \(relative) · based on \(snapshot.reportCount) report\(snapshot.reportCount == 1 ? "" : "s")"
     }
 
     var body: some View {

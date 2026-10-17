@@ -34,10 +34,14 @@ struct BusynessService {
         }
 
         let decoded = try JSONDecoder().decode(CrowdLevelResponse.self, from: data)
-        guard decoded.reportCount > 0 else { return .empty }
+
+        // Both halves have to be present to show a reading. A count with no level (or the
+        // reverse) means the backend had nothing to average, not that the gym is empty at
+        // level zero, so fall back to the "gathering reports" state instead of inventing one.
+        guard decoded.reportCount > 0, let level = decoded.level else { return .empty }
 
         return BusynessSnapshot(
-            averageLevel: Int(decoded.level.rounded()),
+            averageLevel: Int(level.rounded()),
             reportCount: decoded.reportCount,
             lastUpdated: Date()
         )

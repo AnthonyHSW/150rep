@@ -19,8 +19,11 @@ struct CrowdReportInsert: Encodable {
 }
 
 /// Response body from `GET /v1/crowd-level`.
+///
+/// `level` is nullable: the backend returns `null` for it whenever there is nothing to
+/// average, so it has to be optional here or an empty gym fails to decode at all.
 struct CrowdLevelResponse: Decodable {
-    let level: Double
+    let level: Double?
     let reportCount: Int
 
     enum CodingKeys: String, CodingKey {
