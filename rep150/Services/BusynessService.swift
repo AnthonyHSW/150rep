@@ -1,5 +1,4 @@
 import Foundation
-import Supabase
 
 /// A rolled-up read of recent crowd reports, used to drive the busyness meter.
 struct BusynessSnapshot {
@@ -19,7 +18,7 @@ struct BackendError: LocalizedError {
     }
 }
 
-/// Reads the current busyness from the backend API; writes still go straight to Supabase.
+/// Reads and writes busyness through the backend API, which holds the service-level DB access.
 struct BusynessService {
     static func fetchCurrentBusyness() async throws -> BusynessSnapshot {
         let token = try await AuthService.accessToken()
@@ -45,9 +44,18 @@ struct BusynessService {
     }
 
     static func submitReport(level: Int) async throws {
-        try await supabase
-            .from("crowd_reports")
-            .insert(CrowdReportInsert(level: level))
-            .execute()
+        let token = try await AuthService.accessToken()
+
+        var request = URLRequest(url: URL(string: "/v1/crowd-reports", relativeTo: APIConfig.baseURL)!)
+        request.httpMethod = "POST"
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try JSONEncoder().encode(CrowdReportInsert(level: level))
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard let httpResponse = response as? HTTPURLResponse, (200..<300).contains(httpResponse.statusCode) else {
+            let status = (response as? HTTPURLResponse)?.statusCode ?? -1
+            throw BackendError(statusCode: status, body: String(data: data, encoding: .utf8) ?? "<non-utf8 body>")
+        }
     }
 }
