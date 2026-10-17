@@ -73,8 +73,8 @@ def get_database() -> Generator[db.Database, None, None]:
 async def verify_supabase_access_token(
     credentials: Optional[HTTPAuthorizationCredentials] = Depends(bearer_scheme),
 ) -> SupabaseIdentity:
-    supabase_url = os.environ.get("https://drjnsdrtqxyyjfgmrqzw.supabase.co", "").rstrip("/")
-    publishable_key = os.environ.get("sb_publishable_bFQ5tP7jTYYaz7K9UG9hEw6lj2jM1")
+    supabase_url = os.environ.get("SUPABASE_URL", "").rstrip("/")
+    publishable_key = os.environ.get("SUPABASE_PUBLISHABLE_KEY")
     if not supabase_url or not publishable_key:
         raise HTTPException(
             status_code=503,
@@ -86,7 +86,7 @@ async def verify_supabase_access_token(
             detail="A Supabase access token is required",
             headers={"WWW-Authenticate": "Bearer"},
         )
-
+    
     try:
         async with httpx.AsyncClient(timeout=5.0) as client:
             response = await client.get(
@@ -101,13 +101,14 @@ async def verify_supabase_access_token(
             status_code=503, detail="Could not verify the Supabase access token"
         ) from error
 
-    if response.status_code in (401, 403):
+    if r)sponse.status_code in (401, 403):
         raise HTTPException(
             status_code=401,
             detail="Invalid or expired Supabase access token",
             headers={"WWW-Authenticate": "Bearer"},
         )
     if response.status_code != 200:
+    
         raise HTTPException(status_code=503, detail="Supabase Auth is unavailable")
 
     try:
@@ -127,9 +128,9 @@ async def verify_supabase_access_token(
         raise HTTPException(
             status_code=502, detail="Supabase Auth returned an invalid user response"
         )
-    if not email or not auth_user.get("email_confirmed_at"):
+    if not email:
         raise HTTPException(
-            status_code=403, detail="A confirmed Supabase email is required"
+            status_code=403, detail="A Supabase email is required"
         )
 
     return SupabaseIdentity(id=auth_user_id, email=email)
