@@ -170,14 +170,14 @@ GET <API_BASE_URL>/v1/crowd-schedule?e=0
 ```
 
 This schedule endpoint is public and does not require an access token. The `e`
-parameter maps `0` to Saturday, `1` to Sunday, `2` to Monday, through `6` to
-Friday. It returns values divided by 10, ordered from 6 AM through 11 PM:
+parameter maps `0` to Sunday, `1` to Monday, continuing through `6` for
+Saturday. It returns values divided by 10, ordered from 6 AM through 11 PM:
 
 ```json
-{"e": 0, "values": [0.8, 1.2, 2.2, 3.8, 5.0, 5.5, 5.2, 4.5, 4.0, 3.5, 3.0, 2.4, 1.8, 1.2, 0.8, 0.5, 0.3, 0.2]}
+{"e": 0, "values": [0.6, 1.0, 1.8, 3.0, 4.2, 5.0, 5.4, 4.8, 4.2, 3.8, 3.6, 3.4, 3.0, 2.6, 2.0, 1.2, 0.6, 0.3]}
 ```
 
-For example, request `/v1/crowd-schedule?e=1` to get Sunday's values. Run
+For example, request `/v1/crowd-schedule?e=1` to get Monday's values. Run
 [`seed_crowd_schedule.sql`](./seed_crowd_schedule.sql) in Supabase before using
 this endpoint.
 

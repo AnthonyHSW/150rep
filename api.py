@@ -153,8 +153,8 @@ def read_crowd_schedule(
     e: int = Query(ge=0, le=6),
     database: db.Database = Depends(get_database),
 ) -> CrowdScheduleResponse:
-    # Frontend numbering is Saturday=0, Sunday=1, Monday=2, ..., Friday=6.
-    day_of_week = {0: 6, 1: 7}.get(e, e - 1)
+    # Frontend numbering is Sunday=0, Monday=1, ..., Saturday=6.
+    day_of_week = 7 if e == 0 else e
     values = query.get_crowd_schedule_values(database, day_of_week)
     if len(values) != 18:
         raise HTTPException(
