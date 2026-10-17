@@ -1,11 +1,23 @@
 ALTER TABLE users
     ADD COLUMN IF NOT EXISTS auth_user_id UUID;
 
--- MVP has no signup flow: local accounts are created on first anonymous
--- Supabase sign-in, so email/name/password can no longer be required.
+-- Supabase Auth owns passwords; local app accounts are created on first API use.
 ALTER TABLE users ALTER COLUMN email DROP NOT NULL;
 ALTER TABLE users ALTER COLUMN name DROP NOT NULL;
-ALTER TABLE users ALTER COLUMN password DROP NOT NULL;
+
+DO $$
+BEGIN
+    IF EXISTS (
+        SELECT 1
+        FROM information_schema.columns
+        WHERE table_schema = current_schema()
+          AND table_name = 'users'
+          AND column_name = 'password'
+    ) THEN
+        ALTER TABLE users ALTER COLUMN password DROP NOT NULL;
+    END IF;
+END
+$$;
 
 CREATE UNIQUE INDEX IF NOT EXISTS users_auth_user_id_idx
     ON users (auth_user_id)

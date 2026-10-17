@@ -17,9 +17,6 @@ class Database:
 
         self.conn = psycopg2.connect(database_url)
         self.cursor = self.conn.cursor()
-        self.name = None
-        self.password = None
-        self.email = None
 
     @classmethod
     def from_environment(cls) -> "Database":
@@ -38,7 +35,6 @@ class Database:
                 id SERIAL PRIMARY KEY,
                 name TEXT,
                 email TEXT UNIQUE,
-                password TEXT,
                 auth_user_id UUID UNIQUE
             )
         ''')
@@ -182,19 +178,3 @@ class Database:
         ''')
         average, report_count = self.cursor.fetchone()
         return average, report_count
-
-    def insert_user_login(self, name, email, password):
-        """Insert a local account for a UCI email address."""
-        if not email.endswith("@uci.edu"):
-            return False
-
-        try:
-            self.cursor.execute('''
-                INSERT INTO users (name, email, password)
-                VALUES (%s, %s, %s)
-            ''', (name, email, password))
-            self.conn.commit()
-            return True
-        except psycopg2.IntegrityError:
-            self.conn.rollback()
-            return False

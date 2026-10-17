@@ -24,6 +24,37 @@ class AttendanceCreate(BaseModel):
     attended_at: Optional[datetime] = None
 
 
+class AuthCredentials(BaseModel):
+    email: str = Field(min_length=3, max_length=320)
+    password: str = Field(min_length=1, max_length=128)
+
+
+class AuthRefreshRequest(BaseModel):
+    refresh_token: str = Field(min_length=1)
+
+
+class AuthUser(BaseModel):
+    id: str
+    email: Optional[str] = None
+
+
+class LoginResponse(BaseModel):
+    access_token: str
+    token_type: str
+    expires_in: int
+    refresh_token: str
+    user: AuthUser
+
+
+class SignupResponse(BaseModel):
+    confirmation_required: bool
+    access_token: Optional[str] = None
+    token_type: Optional[str] = None
+    expires_in: Optional[int] = None
+    refresh_token: Optional[str] = None
+    user: Optional[AuthUser] = None
+
+
 class AttendanceResponse(BaseModel):
     id: int
     attended_at: datetime
@@ -61,6 +92,121 @@ class CrowdScheduleResponse(BaseModel):
 class SupabaseIdentity(BaseModel):
     id: str
     email: Optional[str] = None
+
+
+def require_uci_email(email: str) -> str:
+    normalized_email = email.strip().lower()
+    if not is_uci_email(normalized_email):
+        raise HTTPException(
+            status_code=422,
+            detail="Email must be an address ending in @uci.edu",
+        )
+    return normalized_email
+
+
+def is_uci_email(email: str) -> bool:
+    local_part, separator, domain = email.strip().rpartition("@")
+    return bool(local_part and separator and domain.casefold() == "uci.edu")
+
+
+def supabase_auth_config() -> tuple[str, str]:
+    supabase_url = os.environ.get("SUPABASE_URL", "").rstrip("/")
+    publishable_key = os.environ.get("SUPABASE_PUBLISHABLE_KEY")
+    if not supabase_url or not publishable_key:
+        raise HTTPException(
+            status_code=503,
+            detail="SUPABASE_URL and SUPABASE_PUBLISHABLE_KEY must be configured",
+        )
+    return supabase_url, publishable_key
+
+
+async def request_supabase_auth(
+    endpoint: str,
+    payload: dict[str, str],
+    *,
+    invalid_credentials_detail: Optional[str] = None,
+) -> dict:
+    supabase_url, publishable_key = supabase_auth_config()
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            response = await client.post(
+                f"{supabase_url}/auth/v1/{endpoint}",
+                headers={"apikey": publishable_key},
+                json=payload,
+            )
+    except httpx.RequestError as error:
+        raise HTTPException(
+            status_code=503, detail="Could not reach Supabase Auth"
+        ) from error
+
+    if (
+        invalid_credentials_detail is not None
+        and response.status_code in (400, 401, 422)
+    ):
+        raise HTTPException(status_code=401, detail=invalid_credentials_detail)
+    if response.status_code == 429:
+        raise HTTPException(status_code=429, detail="Too many authentication attempts")
+    if response.status_code >= 500:
+        raise HTTPException(status_code=503, detail="Supabase Auth is unavailable")
+    if response.status_code not in (200, 201):
+        raise HTTPException(
+            status_code=400 if endpoint == "signup" else 502,
+            detail="Supabase Auth rejected the request",
+        )
+
+    try:
+        auth_result = response.json()
+    except ValueError as error:
+        raise HTTPException(
+            status_code=502, detail="Supabase Auth returned an invalid response"
+        ) from error
+    if not isinstance(auth_result, dict):
+        raise HTTPException(
+            status_code=502, detail="Supabase Auth returned an invalid response"
+        )
+    return auth_result
+
+
+def auth_user_from_response(auth_result: dict) -> Optional[AuthUser]:
+    user_data = auth_result.get("user")
+    if not isinstance(user_data, dict):
+        return None
+    user_id = user_data.get("id")
+    email = user_data.get("email")
+    if not isinstance(user_id, str):
+        return None
+    return AuthUser(id=user_id, email=email if isinstance(email, str) else None)
+
+
+def login_response_from_auth_result(auth_result: dict) -> LoginResponse:
+    user = auth_user_from_response(auth_result)
+    access_token = auth_result.get("access_token")
+    token_type = auth_result.get("token_type")
+    expires_in = auth_result.get("expires_in")
+    refresh_token = auth_result.get("refresh_token")
+    if (
+        not isinstance(access_token, str)
+        or not isinstance(token_type, str)
+        or not isinstance(expires_in, int)
+        or isinstance(expires_in, bool)
+        or not isinstance(refresh_token, str)
+        or user is None
+    ):
+        raise HTTPException(
+            status_code=502, detail="Supabase Auth returned an incomplete login response"
+        )
+    if user.email is None or not is_uci_email(user.email):
+        raise HTTPException(
+            status_code=403,
+            detail="A valid @uci.edu Supabase account is required",
+        )
+    return LoginResponse(
+        access_token=access_token,
+        token_type=token_type,
+        expires_in=expires_in,
+        refresh_token=refresh_token,
+        user=user,
+    )
 
 
 def get_database() -> Generator[db.Database, None, None]:
@@ -136,10 +282,69 @@ async def verify_supabase_access_token(
     return SupabaseIdentity(id=auth_user_id, email=email if isinstance(email, str) else None)
 
 
+@app.post("/v1/auth/signup", response_model=SignupResponse, status_code=201)
+async def signup(payload: AuthCredentials) -> SignupResponse:
+    email = require_uci_email(payload.email)
+    auth_result = await request_supabase_auth(
+        "signup",
+        {"email": email, "password": payload.password},
+    )
+    access_token = auth_result.get("access_token")
+    token_type = auth_result.get("token_type")
+    expires_in = auth_result.get("expires_in")
+    refresh_token = auth_result.get("refresh_token")
+    if access_token is not None and not isinstance(access_token, str):
+        raise HTTPException(
+            status_code=502, detail="Supabase Auth returned an invalid signup session"
+        )
+    if isinstance(access_token, str) and (
+        not isinstance(token_type, str)
+        or not isinstance(expires_in, int)
+        or isinstance(expires_in, bool)
+        or not isinstance(refresh_token, str)
+    ):
+        raise HTTPException(
+            status_code=502, detail="Supabase Auth returned an incomplete signup session"
+        )
+    return SignupResponse(
+        confirmation_required=not isinstance(access_token, str),
+        access_token=access_token,
+        token_type=token_type,
+        expires_in=expires_in,
+        refresh_token=refresh_token,
+        user=auth_user_from_response(auth_result),
+    )
+
+
+@app.post("/v1/auth/login", response_model=LoginResponse)
+async def login(payload: AuthCredentials) -> LoginResponse:
+    email = require_uci_email(payload.email)
+    auth_result = await request_supabase_auth(
+        "token?grant_type=password",
+        {"email": email, "password": payload.password},
+        invalid_credentials_detail="Invalid email or password",
+    )
+    return login_response_from_auth_result(auth_result)
+
+
+@app.post("/v1/auth/refresh", response_model=LoginResponse)
+async def refresh_login(payload: AuthRefreshRequest) -> LoginResponse:
+    auth_result = await request_supabase_auth(
+        "token?grant_type=refresh_token",
+        {"refresh_token": payload.refresh_token},
+        invalid_credentials_detail="Invalid refresh token",
+    )
+    return login_response_from_auth_result(auth_result)
+
+
 def get_authenticated_user_id(
     identity: SupabaseIdentity = Depends(verify_supabase_access_token),
     database: db.Database = Depends(get_database),
 ) -> int:
+    if identity.email is None or not is_uci_email(identity.email):
+        raise HTTPException(
+            status_code=403, detail="A valid @uci.edu Supabase account is required"
+        )
     return database.get_or_create_user_id(identity.id, identity.email)
 
 
