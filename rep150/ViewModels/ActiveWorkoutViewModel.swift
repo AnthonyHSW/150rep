@@ -6,9 +6,23 @@ import UIKit
 @Observable
 @MainActor
 final class ActiveWorkoutViewModel: Identifiable {
+    /// What the workout screen is being used for. The editing case exists so a finished
+    /// workout can be reopened and corrected in the same UI, minus anything that only makes
+    /// sense while it's happening — the clocks.
+    enum Mode {
+        /// A workout happening now: the duration counts up and finishing a set starts a rest
+        /// timer.
+        case live
+        /// A completed workout being reviewed or corrected. Its duration is already settled,
+        /// so nothing ticks.
+        case editing
+    }
+
     /// Held as a plain value rather than read off `activeSession`, so `Identifiable` is
     /// satisfied without the identity itself becoming main-actor isolated.
     nonisolated let id: UUID
+
+    let mode: Mode
 
     var activeSession: WorkoutSession
     var elapsedTime: TimeInterval = 0
@@ -25,14 +39,23 @@ final class ActiveWorkoutViewModel: Identifiable {
     private var restTimer: Timer?
     private var hasNotifiedRestTarget = false
 
-    init(session: WorkoutSession, store: WorkoutStore) {
+    init(session: WorkoutSession, store: WorkoutStore, mode: Mode = .live) {
         self.id = session.id
         self.activeSession = session
         self.store = store
-        startSessionTimer()
+        self.mode = mode
+
+        switch mode {
+        case .live:
+            startSessionTimer()
+        case .editing:
+            // Already finished, so the duration is a fact rather than something to count.
+            elapsedTime = session.duration
+        }
     }
 
     func startSessionTimer() {
+        guard mode == .live else { return }
         elapsedTime = Date().timeIntervalSince(activeSession.startTime)
         sessionTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated {
@@ -51,7 +74,11 @@ final class ActiveWorkoutViewModel: Identifiable {
 
         if set.isCompleted {
             UIImpactFeedbackGenerator(style: .medium).impactOccurred()
-            startRestTimer()
+            // Correcting a past workout shouldn't start a rest countdown for a rest that
+            // happened days ago.
+            if mode == .live {
+                startRestTimer()
+            }
         }
     }
 

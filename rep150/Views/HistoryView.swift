@@ -14,6 +14,9 @@ struct HistoryView: View {
     )
     private var completedSessions: [WorkoutSession]
 
+    @Environment(\.modelContext) private var modelContext
+    @State private var editingViewModel: ActiveWorkoutViewModel?
+
     var body: some View {
         NavigationStack {
             Group {
@@ -24,7 +27,12 @@ struct HistoryView: View {
                         ForEach(groupedByMonth, id: \.month) { group in
                             Section(group.month) {
                                 ForEach(group.sessions) { session in
-                                    CompletedSessionRow(session: session)
+                                    Button {
+                                        openEditor(for: session)
+                                    } label: {
+                                        CompletedSessionRow(session: session)
+                                    }
+                                    .buttonStyle(.plain)
                                 }
                             }
                             .listRowBackground(AppColors.contentSurface)
@@ -52,6 +60,18 @@ struct HistoryView: View {
                 }
             }
         }
+        .fullScreenCover(item: $editingViewModel) { viewModel in
+            ActiveWorkoutView(viewModel: viewModel)
+        }
+    }
+
+    /// Reopens a finished workout in the active-workout screen, with its clocks stopped.
+    private func openEditor(for session: WorkoutSession) {
+        editingViewModel = ActiveWorkoutViewModel(
+            session: session,
+            store: WorkoutStore(modelContext: modelContext),
+            mode: .editing
+        )
     }
 
     private var emptyState: some View {
@@ -82,6 +102,10 @@ struct HistoryView: View {
 
 struct CompletedSessionRow: View {
     let session: WorkoutSession
+
+    @State private var thumbnail: UIImage?
+
+    private var photos: [WorkoutPhoto] { session.orderedPhotos }
 
     private var durationLabel: String {
         let total = Int(session.duration)
@@ -121,8 +145,51 @@ struct CompletedSessionRow: View {
                     .foregroundColor(.secondary)
                     .lineLimit(2)
             }
+
+            if let thumbnail {
+                Image(uiImage: thumbnail)
+                    .resizable()
+                    .scaledToFill()
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 150)
+                    .clipShape(RoundedRectangle(cornerRadius: 10))
+                    .overlay(alignment: .bottomTrailing) {
+                        // Only the first photo is shown, so say when there are others behind
+                        // it rather than implying the workout had just the one.
+                        if photos.count > 1 {
+                            Label("\(photos.count)", systemImage: "photo.on.rectangle")
+                                .font(.caption2)
+                                .fontWeight(.semibold)
+                                .foregroundColor(.white)
+                                .padding(.horizontal, 7)
+                                .padding(.vertical, 4)
+                                .background(.black.opacity(0.55), in: Capsule())
+                                .padding(8)
+                        }
+                    }
+                    .padding(.top, 4)
+            }
         }
         .padding(.vertical, 2)
+        // Keyed on the filename so the thumbnail reloads if the first photo is replaced, and
+        // isn't redecoded on every redraw.
+        .task(id: photos.first?.filename) {
+            await loadThumbnail()
+        }
+    }
+
+    /// Decodes the first photo at list-row size, off the main actor — these files are up to
+    /// 1920px, and decoding one per row during scrolling would land squarely on the main
+    /// thread.
+    private func loadThumbnail() async {
+        guard let filename = photos.first?.filename else {
+            thumbnail = nil
+            return
+        }
+
+        thumbnail = await Task.detached(priority: .userInitiated) {
+            WorkoutPhotoFileManager.shared.thumbnail(filename: filename, maxPixelSize: 600)
+        }.value
     }
 }
 

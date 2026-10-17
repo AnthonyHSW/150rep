@@ -1,4 +1,5 @@
 import Foundation
+import ImageIO
 import UIKit
 
 /// Owns the JPEGs backing `WorkoutPhoto`, stored in the app sandbox rather than the database.
@@ -83,6 +84,31 @@ struct WorkoutPhotoFileManager {
     func loadImage(filename: String) -> UIImage? {
         guard let url = try? url(for: filename) else { return nil }
         return UIImage(contentsOfFile: url.path(percentEncoded: false))
+    }
+
+    /// Decodes a downsampled version straight from the file.
+    ///
+    /// Stored photos run to 1920px, and decoding one at full size only to draw it in a list
+    /// row costs both memory and main-thread time. ImageIO builds the reduced image without
+    /// ever materialising the full-size bitmap. Call this off the main actor.
+    func thumbnail(filename: String, maxPixelSize: Int) -> UIImage? {
+        guard let url = try? url(for: filename),
+              let source = CGImageSourceCreateWithURL(url as CFURL, nil)
+        else { return nil }
+
+        let options: [CFString: Any] = [
+            // Photos written by this app carry no embedded thumbnail, so one has to be made
+            // from the image itself.
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+            kCGImageSourceShouldCacheImmediately: true,
+            kCGImageSourceThumbnailMaxPixelSize: maxPixelSize,
+        ]
+
+        guard let image = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary)
+        else { return nil }
+
+        return UIImage(cgImage: image)
     }
 
     /// Removes the file behind a photo. Best-effort: a missing file is already the goal, and

@@ -78,9 +78,13 @@ struct ActiveWorkoutView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
-                    Button("Exit") {
-                        viewModel.exitWorkout()
-                        dismiss()
+                    // A finished workout has nothing to exit from — it's already saved, so
+                    // the only way out is Done.
+                    if viewModel.mode == .live {
+                        Button("Exit") {
+                            viewModel.exitWorkout()
+                            dismiss()
+                        }
                     }
                 }
                 ToolbarItem(placement: .principal) {
@@ -94,10 +98,23 @@ struct ActiveWorkoutView: View {
                     }
                 }
                 ToolbarItem(placement: .navigationBarTrailing) {
-                    Button("Finish") {
-                        isShowingFinishConfirm = true
+                    switch viewModel.mode {
+                    case .live:
+                        Button("Finish") {
+                            isShowingFinishConfirm = true
+                        }
+                        .fontWeight(.semibold)
+
+                    case .editing:
+                        // Edits are already written as they're made, so this just flushes and
+                        // leaves — no confirmation to give.
+                        Button("Done") {
+                            viewModel.exitWorkout()
+                            viewModel.syncPhotos()
+                            dismiss()
+                        }
+                        .fontWeight(.semibold)
                     }
-                    .fontWeight(.semibold)
                 }
                 ToolbarItemGroup(placement: .keyboard) {
                     Spacer()
