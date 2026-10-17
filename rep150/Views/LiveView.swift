@@ -101,15 +101,27 @@ struct BusynessMeterSection: View {
     let isRefreshing: Bool
     let onRefresh: () -> Void
 
-    private var hasData: Bool { snapshot.reportCount > 0 }
+    private var hasData: Bool { snapshot.hasData }
 
     /// `lastUpdated` is when this device last fetched, not when anyone last reported — the
-    /// endpoint returns no timestamp — so this says "Checked", not "Updated". The count is
-    /// likewise every standing report, not just the fresh ones, so it isn't called "recent".
+    /// endpoint returns no timestamp — so this says "Checked", not "Updated".
+    ///
+    /// The count is people, not submissions. `crowd_reports` is keyed by user and the
+    /// submit upserts, so each person holds exactly one standing report however many
+    /// times they tap — which is what keeps one keen reporter from swinging the
+    /// average. Calling these "reports" read as a bug every time someone resubmitted.
     private var updatedText: String {
-        guard let lastUpdated = snapshot.lastUpdated else { return "No reports yet" }
+        guard let lastUpdated = snapshot.lastUpdated else { return "Nobody reporting yet" }
         let relative = RelativeDateTimeFormatter().localizedString(for: lastUpdated, relativeTo: Date())
-        return "Checked \(relative) · based on \(snapshot.reportCount) report\(snapshot.reportCount == 1 ? "" : "s")"
+
+        switch snapshot.source {
+        case .live(let count):
+            return "Checked \(relative) · \(count) \(count == 1 ? "person" : "people") reporting"
+        case .typical:
+            return "Typical for this hour · nobody reporting yet"
+        case .unavailable:
+            return "Nobody reporting yet"
+        }
     }
 
     var body: some View {
@@ -350,8 +362,12 @@ struct DailyTrafficChartSection: View {
     /// The current hour's bar, when there is a live reading to put over it. Both the bucket
     /// and the reading have to exist: nothing is "now" outside the reported hours, and with
     /// no reports in there's no actual to compare against.
+    ///
+    /// Only live reports qualify. A historical reading is drawn from the same typical data
+    /// as the curve behind it, so overlaying it would plot the curve against itself — it
+    /// would look like agreement where there is really just one number shown twice.
     private var actualBar: (label: String, value: Double)? {
-        guard snapshot.reportCount > 0,
+        guard case .live = snapshot.source,
               let bar = hourlyTraffic.first(where: { $0.isNow })
         else { return nil }
         return (bar.label, Double(snapshot.averageLevel))

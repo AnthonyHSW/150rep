@@ -1,12 +1,36 @@
 import Foundation
 
-/// A rolled-up read of recent crowd reports, used to drive the busyness meter.
+/// A rolled-up read of the current crowd level, used to drive the busyness meter.
 struct BusynessSnapshot {
+    /// Where `averageLevel` came from. The backend serves live votes when it has any from
+    /// the last half hour and otherwise falls back to the hour's historical schedule, and
+    /// the two must not be presented as the same thing: one is what people report right
+    /// now, the other is only what this hour usually looks like.
+    enum Source: Equatable {
+        /// An average of live reports. The associated value counts *people*, not
+        /// submissions: `crowd_reports` is keyed by user and the submit upserts, so
+        /// resubmitting replaces your row rather than adding one.
+        case live(reporterCount: Int)
+        /// The historical figure for this hour, standing in because no live reports exist.
+        case typical
+        /// Nothing to show at all.
+        case unavailable
+    }
+
     let averageLevel: Int
-    let reportCount: Int
+    let source: Source
     let lastUpdated: Date?
 
-    static let empty = BusynessSnapshot(averageLevel: 0, reportCount: 0, lastUpdated: nil)
+    static let empty = BusynessSnapshot(averageLevel: 0, source: .unavailable, lastUpdated: nil)
+
+    /// Whether there is a level worth putting on the meter, live or historical.
+    var hasData: Bool { source != .unavailable }
+
+    /// How many people back this reading; zero when it is historical or absent.
+    var reporterCount: Int {
+        if case .live(let count) = source { return count }
+        return 0
+    }
 }
 
 struct BackendError: LocalizedError {
@@ -35,14 +59,15 @@ struct BusynessService {
 
         let decoded = try JSONDecoder().decode(CrowdLevelResponse.self, from: data)
 
-        // Both halves have to be present to show a reading. A count with no level (or the
-        // reverse) means the backend had nothing to average, not that the gym is empty at
-        // level zero, so fall back to the "gathering reports" state instead of inventing one.
-        guard decoded.reportCount > 0, let level = decoded.level else { return .empty }
+        // A level with a zero count is not an empty response: that is how the backend
+        // returns the hour's historical figure when nobody has reported in the last half
+        // hour. Only a missing level means there is genuinely nothing to show — outside
+        // the hours the schedule covers, for instance.
+        guard let level = decoded.level else { return .empty }
 
         return BusynessSnapshot(
             averageLevel: Int(level.rounded()),
-            reportCount: decoded.reportCount,
+            source: decoded.reportCount > 0 ? .live(reporterCount: decoded.reportCount) : .typical,
             lastUpdated: Date()
         )
     }
