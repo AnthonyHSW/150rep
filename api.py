@@ -14,7 +14,7 @@ from pydantic import BaseModel, Field
 import database as db
 import query
 
-load_dotenv()
+load_dotenv(override=True)
 
 app = FastAPI(title="150rep Workout API", version="1.0.0")
 bearer_scheme = HTTPBearer(auto_error=False)
@@ -51,6 +51,11 @@ class CrowdLevelResponse(BaseModel):
 class CrowdLevelSubmissionResponse(BaseModel):
     level: int
     updated_at: datetime
+
+
+class CrowdScheduleResponse(BaseModel):
+    e: int
+    values: List[float]
 
 
 class SupabaseIdentity(BaseModel):
@@ -141,6 +146,22 @@ def get_authenticated_user_id(
 @app.get("/health")
 def health() -> dict:
     return {"status": "ok"}
+
+
+@app.get("/v1/crowd-schedule", response_model=CrowdScheduleResponse)
+def read_crowd_schedule(
+    e: int = Query(ge=0, le=6),
+    database: db.Database = Depends(get_database),
+) -> CrowdScheduleResponse:
+    # Frontend numbering is Sunday=0, Monday=1, ..., Saturday=6.
+    day_of_week = 7 if e == 0 else e
+    values = query.get_crowd_schedule_values(database, day_of_week)
+    if len(values) != 18:
+        raise HTTPException(
+            status_code=503,
+            detail="Crowd schedule is not seeded with all 18 hourly values for this day",
+        )
+    return CrowdScheduleResponse(e=e, values=values)
 
 
 @app.post(

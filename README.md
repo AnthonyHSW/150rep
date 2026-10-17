@@ -111,7 +111,8 @@ Content-Type: application/json
 Levels must be integers from 1 through 10. Each user has one current report;
 submitting again updates that user's level instead of adding another vote.
 
-Get the average of current reports:
+Get the average of the 10 most recently updated reports from the last 30
+minutes:
 
 ```http
 GET /v1/crowd-level
@@ -122,8 +123,95 @@ Authorization: Bearer <Supabase access token>
 {"level": 4.0, "report_count": 3}
 ```
 
-`level` is the arithmetic mean of reporting users' current levels and can be a
-decimal. With no reports, the response is `{"level": null, "report_count": 0}`.
+`level` is the arithmetic mean and can be a decimal. Each user's latest report
+replaces their previous vote. Only reports updated within the rolling last 30
+minutes count, and at most the 10 newest are used. The API recalculates on each
+GET request; no scheduled job is required. As reports age past 30 minutes, they
+stop contributing. `report_count` is the number of users contributing to this
+calculation (maximum 10), because each user has only one current report. With
+no recent reports, the API falls back to the illustrative schedule for the
+current hour in `America/Los_Angeles`. The stored 0–100 schedule value is
+divided by 10 to match the live 1–10 scale, and `report_count` remains `0` to
+show that the result came from historical rather than recent user reports.
+Because the schedule only contains 6 AM–11 PM entries, `level` is `null`
+outside those hours when there are no recent reports.
+
+### Import the illustrative weekly chart
+
+The workbook's “Page grid” is a separate illustrative 0–100 weekly schedule,
+not live measurements and not 1–10 crowd votes. To load its 126 Monday–Sunday,
+6 AM–11 PM values into Supabase, paste and run
+[`seed_crowd_schedule.sql`](./seed_crowd_schedule.sql) in the Supabase SQL
+Editor. It creates `public.crowd_schedule`, enables read-only access for
+`anon` and `authenticated` roles, and safely updates matching schedule slots
+when run again. `day_of_week` uses ISO numbering (Monday = 1, Sunday = 7);
+`hour_of_day` uses 24-hour time. `is_illustrative` is always true for these
+workbook values.
+
+The Swift app can read the schedule from Supabase PostgREST using the project
+URL and publishable key:
+
+```http
+GET https://<project-ref>.supabase.co/rest/v1/crowd_schedule?select=day_of_week,hour_of_day,level,is_illustrative&order=day_of_week,hour_of_day
+apikey: <Supabase publishable key>
+Authorization: Bearer <Supabase access token>
+```
+
+This returns rows like:
+
+```json
+[
+  {"day_of_week": 1, "hour_of_day": 6, "level": 22, "is_illustrative": true},
+  {"day_of_week": 1, "hour_of_day": 7, "level": 32, "is_illustrative": true}
+]
+```
+
+The schedule is separate from `GET /v1/crowd-level`, which returns a rolling
+average of recent user-submitted 1–10 votes.
+
+Alternatively, fetch one day's 18 hourly values through the Python API:
+
+```http
+GET <API_BASE_URL>/v1/crowd-schedule?e=0
+```
+
+This schedule endpoint is public and does not require an access token. The `e`
+parameter maps `0` to Sunday, `1` to Monday, continuing through `6` for
+Saturday. It returns values divided by 10, ordered from 6 AM through 11 PM:
+
+```json
+{"e": 0, "values": [0.6, 1.0, 1.8, 3.0, 4.2, 5.0, 5.4, 4.8, 4.2, 3.8, 3.6, 3.4, 3.0, 2.6, 2.0, 1.2, 0.6, 0.3]}
+```
+
+For example, request `/v1/crowd-schedule?e=1` to get Monday's values. Run
+[`seed_crowd_schedule.sql`](./seed_crowd_schedule.sql) in Supabase before using
+this endpoint.
+
+For UI testing, run [`seed_demo_crowd_reports.sql`](./seed_demo_crowd_reports.sql)
+in a development/test Supabase project after running `api_migration.sql`. It
+creates two synthetic users and repeatably sets their reports to 4 and 6, so the
+response becomes `{"level": 5.0, "report_count": 2}` for 30 minutes after it is
+run, if there are no other recent votes. Run it again to refresh the sample
+timestamps. Do not run this in production: these sample reports are included
+in the global average. To remove the sample rows, run:
+
+```sql
+DELETE FROM public.crowd_reports
+WHERE user_id IN (
+    SELECT id
+    FROM public.users
+    WHERE email IN (
+        'demo-crowd-voter-1@example.invalid',
+        'demo-crowd-voter-2@example.invalid'
+    )
+);
+
+DELETE FROM public.users
+WHERE email IN (
+    'demo-crowd-voter-1@example.invalid',
+    'demo-crowd-voter-2@example.invalid'
+);
+```
 
 ### Optional demo attendance data
 

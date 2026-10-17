@@ -146,10 +146,39 @@ class Database:
         return updated_at
 
     def get_crowd_level(self) -> Tuple[Optional[float], int]:
-        """Return the average current crowd report and number of reporting users."""
+        """Return recent votes or this hour's historical Los Angeles schedule level."""
         self.cursor.execute('''
-            SELECT AVG(level)::FLOAT, COUNT(*)
-            FROM crowd_reports
+            WITH recent_reports AS (
+                SELECT level
+                FROM crowd_reports
+                WHERE updated_at >= CURRENT_TIMESTAMP - INTERVAL '30 minutes'
+                ORDER BY updated_at DESC, user_id
+                LIMIT 10
+            ),
+            live_level AS (
+                SELECT AVG(level)::FLOAT AS average, COUNT(*) AS report_count
+                FROM recent_reports
+            ),
+            local_time AS (
+                SELECT CURRENT_TIMESTAMP AT TIME ZONE 'America/Los_Angeles' AS value
+            )
+            SELECT COALESCE(
+                       live_level.average,
+                       (
+                           SELECT crowd_schedule.level / 10.0
+                           FROM public.crowd_schedule
+                           WHERE crowd_schedule.day_of_week =
+                               CASE EXTRACT(DOW FROM local_time.value)::INTEGER
+                                   WHEN 0 THEN 7
+                                   ELSE EXTRACT(DOW FROM local_time.value)::INTEGER
+                               END
+                             AND crowd_schedule.hour_of_day =
+                                 EXTRACT(HOUR FROM local_time.value)::INTEGER
+                       )
+                   ),
+                   live_level.report_count
+            FROM live_level
+            CROSS JOIN local_time
         ''')
         average, report_count = self.cursor.fetchone()
         return average, report_count
