@@ -4,6 +4,8 @@ struct ProfileView: View {
     var body: some View {
         NavigationStack {
             VStack(spacing: 20) {
+                Spacer(minLength: 0)
+
                 VStack(spacing: 12) {
                     Circle()
                         .fill(AppColors.brandBlue.opacity(0.2))
@@ -20,7 +22,7 @@ struct ProfileView: View {
                 .background(AppColors.contentSurface)
                 .cornerRadius(20)
 
-                VStack(alignment: .leading, spacing: 12) {
+                VStack(alignment: .center, spacing: 12) {
                     Text("This Week")
                         .font(.system(size: 14, weight: .semibold))
                         .foregroundColor(.secondary)
@@ -28,18 +30,23 @@ struct ProfileView: View {
                     Text("0 workouts completed")
                         .font(.system(size: 16, weight: .semibold))
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
+                .frame(maxWidth: .infinity, alignment: .center)
                 .padding(16)
                 .background(AppColors.contentSurface)
                 .cornerRadius(20)
 
-                Spacer()
+                Spacer(minLength: 0)
             }
             .padding(16)
+            .frame(maxHeight: .infinity)
             .background(AppColors.pageBackground)
             .navigationTitle("Profile")
-            .navigationBarTitleDisplayMode(.large)
+            .navigationBarTitleDisplayMode(.inline)
             .toolbar {
+                ToolbarItem(placement: .navigationBarLeading) {
+                    LogoView()
+                        .frame(width: 70, height: 28)
+                }
                 ToolbarItem(placement: .navigationBarTrailing) {
                     NavigationLink(destination: SettingsView()) {
                         Image(systemName: "gear")

@@ -1,0 +1,11 @@
+id,name,primaryMuscle
+bench-press,Bench Press,Chest
+back-squat,Back Squat,Quads
+deadlift,Deadlift,Back
+overhead-press,Overhead Press,Shoulders
+barbell-row,Barbell Row,Back
+pull-up,Pull-Up,Back
+bicep-curl,Bicep Curl,Arms
+tricep-pushdown,Tricep Pushdown,Arms
+leg-press,Leg Press,Quads
+plank,Plank,Core

@@ -4,33 +4,37 @@ import Charts
 struct LiveView: View {
     @State private var currentCrowding = 6
     @State private var selectedReport: Int? = nil
-    @State private var reportSubmitted = false
-    @State private var reportConfirmationShown = false
 
     var body: some View {
         NavigationStack {
-            ScrollView {
-                VStack(spacing: 32) {
-                    // Live Busyness Meter
-                    BusynessMeterSection(currentCrowding: currentCrowding)
+            VStack(spacing: 20) {
+                Spacer(minLength: 0)
 
-                    // Best Time Today
-                    DailyTrafficChartSection()
+                // Live Busyness Meter
+                BusynessMeterSection(currentCrowding: currentCrowding)
 
-                    // Quick Crowd Report
-                    CrowdReportSection(
-                        selectedReport: $selectedReport,
-                        onSubmit: handleReportSubmit
-                    )
-                }
-                .padding(.horizontal, 16)
-                .padding(.vertical, 20)
+                // Best Time Today
+                DailyTrafficChartSection()
+
+                // Quick Crowd Report
+                CrowdReportSection(
+                    selectedReport: $selectedReport,
+                    onSubmit: handleReportSubmit
+                )
+
+                Spacer(minLength: 0)
             }
-            .scrollIndicators(.hidden)
+            .padding(.horizontal, 16)
+            .padding(.top, 8)
+            .frame(maxHeight: .infinity)
             .background(AppColors.pageBackground)
-            .navigationTitle("ARC right now")
-            .navigationBarTitleDisplayMode(.large)
+            .navigationTitle("Arc Now")
+            .navigationBarTitleDisplayMode(.inline)
             .toolbar {
+                ToolbarItem(placement: .navigationBarLeading) {
+                    LogoView()
+                        .frame(width: 70, height: 28)
+                }
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Menu {
                         Button("View Options", action: {})
@@ -40,17 +44,11 @@ struct LiveView: View {
                     }
                 }
             }
-            .alert("Thank You", isPresented: $reportConfirmationShown) {
-                Button("OK") { }
-            } message: {
-                Text("Thanks—you're helping other Anteaters plan.")
-            }
         }
     }
 
     private func handleReportSubmit(_ level: Int) {
         selectedReport = level
-        reportConfirmationShown = true
     }
 }
 
@@ -59,25 +57,18 @@ struct BusynessMeterSection: View {
     let currentCrowding: Int
 
     var body: some View {
-        VStack(spacing: 16) {
-            VStack(spacing: 12) {
+        VStack(spacing: 10) {
+            VStack(spacing: 8) {
                 Text("\(currentCrowding)/10 · \(AppColors.crowdingLabel(for: currentCrowding))")
-                    .font(.system(size: 18, weight: .semibold))
+                    .font(.system(size: 16, weight: .semibold))
                     .foregroundColor(.primary)
 
                 BusynessMeterGauge(value: Double(currentCrowding), maxValue: 10)
-                    .frame(height: 140)
-
-                VStack(spacing: 4) {
-                    Text("~3–5 min")
-                        .font(.system(size: 16, weight: .semibold))
-                        .foregroundColor(.primary)
-                    Text("Estimated equipment wait")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                }
+                    .frame(height: 100)
+                    .frame(maxWidth: .infinity)
             }
-            .padding(20)
+            .padding(16)
+            .frame(maxWidth: .infinity)
             .background(AppColors.contentSurface)
             .cornerRadius(20)
 
@@ -86,6 +77,7 @@ struct BusynessMeterSection: View {
                 .foregroundColor(.secondary)
                 .frame(maxWidth: .infinity, alignment: .center)
         }
+        .frame(maxWidth: .infinity)
     }
 }
 
@@ -95,68 +87,100 @@ struct BusynessMeterGauge: View {
     let maxValue: Double
 
     var body: some View {
-        ZStack {
-            // Background track
-            Circle()
-                .trim(from: 0, to: 0.5)
-                .stroke(
-                    LinearGradient(
-                        gradient: Gradient(colors: [
-                            AppColors.quiet,
-                            AppColors.moderate,
-                            AppColors.busy,
-                            AppColors.packed
-                        ]),
-                        startPoint: .leading,
-                        endPoint: .trailing
-                    ),
-                    style: StrokeStyle(lineWidth: 12, lineCap: .round)
-                )
-                .rotationEffect(.degrees(180))
+        GeometryReader { geometry in
+            let width = geometry.size.width
+            let height = geometry.size.height
+            // Inset so the stroke's round caps and the marker dot stay
+            // fully inside the gauge frame; the arc uses the full
+            // available height as its vertical radius (a tall dome).
+            let lineWidth: CGFloat = 12
+            let inset = lineWidth / 2
+            let radiusX = (width / 2 - inset) * 0.7
+            let radiusY = height - inset
+            let centerX = width / 2
+            let centerY = height
 
-            // Progress indicator
-            Circle()
-                .trim(from: 0, to: min(value / maxValue * 0.5, 0.5))
-                .stroke(
-                    AppColors.crowdingColor(for: Int(value)),
-                    style: StrokeStyle(lineWidth: 12, lineCap: .round)
-                )
-                .rotationEffect(.degrees(180))
+            ZStack {
+                // Background track
+                EllipseArc(centerX: centerX, centerY: centerY, radiusX: radiusX, radiusY: radiusY)
+                    .stroke(
+                        LinearGradient(
+                            gradient: Gradient(colors: [
+                                AppColors.quiet,
+                                AppColors.moderate,
+                                AppColors.busy,
+                                AppColors.packed
+                            ]),
+                            startPoint: .leading,
+                            endPoint: .trailing
+                        ),
+                        style: StrokeStyle(lineWidth: lineWidth, lineCap: .round)
+                    )
 
-            // Marker
-            let angle = (value / maxValue) * 180
-            VStack {
+                // Progress indicator
+                EllipseArc(centerX: centerX, centerY: centerY, radiusX: radiusX, radiusY: radiusY, fraction: min(value / maxValue, 1.0))
+                    .stroke(
+                        AppColors.crowdingColor(for: Int(value)),
+                        style: StrokeStyle(lineWidth: lineWidth, lineCap: .round)
+                    )
+
+                // Marker
+                let angle = Angle.degrees(180 - (value / maxValue) * 180)
+                let markerX = centerX + radiusX * cos(angle.radians)
+                let markerY = centerY - radiusY * sin(angle.radians)
                 Circle()
                     .fill(AppColors.crowdingColor(for: Int(value)))
-                    .frame(width: 14, height: 14)
+                    .frame(width: 12, height: 12)
                     .shadow(radius: 2)
-                Spacer()
+                    .position(x: markerX, y: markerY)
             }
-            .rotationEffect(.degrees(angle - 90))
-            .padding(8)
-
-            // Labels
-            HStack(spacing: 8) {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("1")
-                        .font(.caption2.weight(.semibold))
-                    Text("Quiet")
+            .frame(width: width, height: height)
+            .overlay(alignment: .bottom) {
+                // Wait time, overlaid inside the semicircle
+                VStack(spacing: 2) {
+                    Text("~3–5 min")
+                        .font(.system(size: 20, weight: .bold))
+                        .foregroundColor(.primary)
+                    Text("wait")
                         .font(.caption2)
+                        .foregroundColor(.secondary)
                 }
-                .foregroundColor(.secondary)
-
-                Spacer()
-
-                VStack(alignment: .trailing, spacing: 4) {
-                    Text("10")
-                        .font(.caption2.weight(.semibold))
-                    Text("Packed")
-                        .font(.caption2)
-                }
-                .foregroundColor(.secondary)
+                .padding(.bottom, 4)
             }
-            .padding(.horizontal, 12)
         }
+    }
+}
+
+// Draws an arc of an ellipse defined by an explicit center and radii,
+// from the left point (fraction 0) to the right point (fraction 1),
+// independent of the shape's own frame — avoids mismatches between
+// the drawn geometry and the frame it's placed in.
+struct EllipseArc: Shape {
+    var centerX: CGFloat
+    var centerY: CGFloat
+    var radiusX: CGFloat
+    var radiusY: CGFloat
+    var fraction: CGFloat = 1.0
+
+    func path(in rect: CGRect) -> Path {
+        var path = Path()
+        let steps = 100
+        let endStep = Int(CGFloat(steps) * min(max(fraction, 0), 1))
+
+        guard endStep > 0 else { return path }
+
+        for i in 0...endStep {
+            let t = CGFloat(i) / CGFloat(steps)
+            let angle = CGFloat.pi - t * CGFloat.pi // 180° to 0°
+            let x = centerX + radiusX * cos(angle)
+            let y = centerY - radiusY * sin(angle)
+            if i == 0 {
+                path.move(to: CGPoint(x: x, y: y))
+            } else {
+                path.addLine(to: CGPoint(x: x, y: y))
+            }
+        }
+        return path
     }
 }
 
@@ -178,7 +202,7 @@ struct DailyTrafficChartSection: View {
     ]
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .center, spacing: 12) {
             Text("Usually quieter after 8 PM")
                 .font(.system(size: 16, weight: .semibold))
                 .foregroundColor(.primary)
@@ -215,12 +239,11 @@ struct DailyTrafficChartSection: View {
                         .font(.caption)
                         .foregroundColor(.secondary)
 
-                    Spacer()
-
                     Label("Now", systemImage: "circle.fill")
                         .font(.caption)
                         .foregroundColor(.secondary)
                 }
+                .frame(maxWidth: .infinity, alignment: .center)
             }
             .padding(16)
             .background(AppColors.contentSurface)
@@ -242,51 +265,47 @@ struct CrowdReportSection: View {
     ]
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
+        VStack(alignment: .center, spacing: 12) {
             Text("Here now? How busy is it?")
-                .font(.system(size: 16, weight: .semibold))
-                .foregroundColor(.primary)
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundColor(.secondary)
 
-            VStack(spacing: 12) {
+            HStack(spacing: 8) {
                 ForEach(reports, id: \.label) { report in
                     Button(action: {
                         onSubmit(report.level)
                     }) {
-                        HStack(spacing: 12) {
-                            Image(systemName: "checkmark.circle.fill")
-                                .opacity(selectedReport == report.level ? 1 : 0)
+                        VStack(spacing: 4) {
+                            Image(systemName: "circle.fill")
+                                .foregroundColor(AppColors.crowdingColor(for: report.level))
+                                .font(.caption)
 
                             Text(report.label)
-                                .font(.system(size: 16, weight: .semibold))
-
-                            Spacer()
-
-                            Image(systemName: AppColors.crowdingColor(for: report.level) == AppColors.quiet ? "circle.fill" : "circle.fill")
-                                .foregroundColor(AppColors.crowdingColor(for: report.level))
+                                .font(.system(size: 12, weight: .semibold))
                         }
                         .frame(maxWidth: .infinity)
-                        .padding(16)
+                        .padding(12)
                         .background(
                             selectedReport == report.level
-                                ? AppColors.crowdingColor(for: report.level).opacity(0.1)
+                                ? AppColors.crowdingColor(for: report.level).opacity(0.15)
                                 : Color.clear
                         )
                         .overlay(
-                            RoundedRectangle(cornerRadius: 12)
+                            RoundedRectangle(cornerRadius: 10)
                                 .stroke(
                                     selectedReport == report.level
                                         ? AppColors.crowdingColor(for: report.level)
-                                        : Color.gray.opacity(0.3),
-                                    lineWidth: 2
+                                        : Color.gray.opacity(0.2),
+                                    lineWidth: 1.5
                                 )
                         )
-                        .cornerRadius(12)
+                        .cornerRadius(10)
                         .foregroundColor(.primary)
                     }
                 }
             }
         }
-        .padding(.bottom, 40)
+        .padding(.bottom, 20)
     }
 }
 

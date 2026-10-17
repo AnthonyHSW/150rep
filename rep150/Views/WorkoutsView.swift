@@ -1,10 +1,16 @@
 import SwiftUI
+import SwiftData
 
 struct WorkoutsView: View {
+    @Environment(\.modelContext) private var modelContext
+    @State private var activeViewModel: ActiveWorkoutViewModel?
+
     var body: some View {
         NavigationStack {
             VStack(spacing: 20) {
-                Button(action: {}) {
+                Spacer(minLength: 0)
+
+                Button(action: startWorkout) {
                     Text("Start Workout")
                         .font(.system(size: 18, weight: .semibold))
                         .frame(maxWidth: .infinity)
@@ -17,13 +23,18 @@ struct WorkoutsView: View {
                 Text("No active workouts")
                     .foregroundColor(.secondary)
 
-                Spacer()
+                Spacer(minLength: 0)
             }
             .padding(16)
+            .frame(maxHeight: .infinity)
             .background(AppColors.pageBackground)
             .navigationTitle("Workouts")
-            .navigationBarTitleDisplayMode(.large)
+            .navigationBarTitleDisplayMode(.inline)
             .toolbar {
+                ToolbarItem(placement: .navigationBarLeading) {
+                    LogoView()
+                        .frame(width: 70, height: 28)
+                }
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Menu {
                         Button("Create Routine", action: {})
@@ -35,7 +46,20 @@ struct WorkoutsView: View {
                 }
             }
         }
+        .fullScreenCover(item: $activeViewModel) { viewModel in
+            ActiveWorkoutView(viewModel: viewModel)
+        }
     }
+
+    private func startWorkout() {
+        let session = WorkoutSession(title: WorkoutSession.defaultTitle())
+        modelContext.insert(session)
+        activeViewModel = ActiveWorkoutViewModel(session: session, modelContext: modelContext)
+    }
+}
+
+extension ActiveWorkoutViewModel: Identifiable {
+    var id: UUID { activeSession.id }
 }
 
 #Preview {
