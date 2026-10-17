@@ -46,13 +46,9 @@ struct ExerciseCardView: View {
                         previousLabel: previousLabel(forSetNumber: set.setNumber),
                         focusedField: focusedField,
                         onToggleComplete: { viewModel.toggleSetCompletion(set) },
-                        onCycleType: { cycleType(of: set) }
+                        onCycleType: { cycleType(of: set) },
+                        onDelete: { viewModel.removeSet(set, from: exercise) }
                     )
-                    .contextMenu {
-                        Button("Delete Set", systemImage: "trash", role: .destructive) {
-                            viewModel.removeSet(set, from: exercise)
-                        }
-                    }
                 }
 
                 Button {
