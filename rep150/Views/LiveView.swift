@@ -129,9 +129,15 @@ struct BusynessMeterSection: View {
             VStack(spacing: 8) {
                 HStack {
                     if hasData {
-                        Text("\(snapshot.averageLevel)/10 · \(AppColors.crowdingLabel(for: snapshot.averageLevel))")
-                            .font(.system(size: 16, weight: .semibold))
-                            .foregroundColor(.primary)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("\(snapshot.averageLevel)/10 · \(AppColors.crowdingLabel(for: snapshot.averageLevel))")
+                                .font(.system(size: 16, weight: .semibold))
+                                .foregroundColor(.primary)
+
+                            Text(WaitTimeEstimate.forLevel(snapshot.averageLevel).description)
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
                     } else {
                         Text("Gathering reports…")
                             .font(.system(size: 16, weight: .semibold))
