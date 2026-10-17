@@ -52,10 +52,7 @@ struct BusynessService {
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
 
         let (data, response) = try await URLSession.shared.data(for: request)
-        guard let httpResponse = response as? HTTPURLResponse, (200..<300).contains(httpResponse.statusCode) else {
-            let status = (response as? HTTPURLResponse)?.statusCode ?? -1
-            throw BackendError(statusCode: status, body: String(data: data, encoding: .utf8) ?? "<non-utf8 body>")
-        }
+        try await validate(response, data: data)
 
         let decoded = try JSONDecoder().decode(CrowdLevelResponse.self, from: data)
 
@@ -82,9 +79,20 @@ struct BusynessService {
         request.httpBody = try JSONEncoder().encode(CrowdReportInsert(level: level))
 
         let (data, response) = try await URLSession.shared.data(for: request)
-        guard let httpResponse = response as? HTTPURLResponse, (200..<300).contains(httpResponse.statusCode) else {
-            let status = (response as? HTTPURLResponse)?.statusCode ?? -1
-            throw BackendError(statusCode: status, body: String(data: data, encoding: .utf8) ?? "<non-utf8 body>")
+        try await validate(response, data: data)
+    }
+
+    /// Check a protected response, telling `AuthService` first when the backend refuses
+    /// the token. The UCI rule is enforced server-side, so a 403 here is how the app
+    /// learns the signed-in account is not allowed — it has no way to know in advance.
+    private static func validate(_ response: URLResponse, data: Data) async throws {
+        let status = (response as? HTTPURLResponse)?.statusCode ?? -1
+        guard (200..<300).contains(status) else {
+            await AuthService.shared.handleRejection(statusCode: status)
+            throw BackendError(
+                statusCode: status,
+                body: String(data: data, encoding: .utf8) ?? "<non-utf8 body>"
+            )
         }
     }
 }

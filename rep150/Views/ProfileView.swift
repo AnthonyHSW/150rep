@@ -1,6 +1,10 @@
 import SwiftUI
 
 struct ProfileView: View {
+    private let auth = AuthService.shared
+
+    @State private var isConfirmingSignOut = false
+
     var body: some View {
         NavigationStack {
             VStack(spacing: 20) {
@@ -11,10 +15,11 @@ struct ProfileView: View {
                         .fill(AppColors.brandBlue.opacity(0.2))
                         .frame(width: 60, height: 60)
 
-                    Text("Oliver Larsson")
+                    // The signed-in account, not a hardcoded one.
+                    Text(auth.account?.displayName ?? "Signed in")
                         .font(.system(size: 18, weight: .semibold))
 
-                    Text("olarsson@uci.edu")
+                    Text(auth.account?.email ?? "")
                         .font(.caption)
                         .foregroundColor(.secondary)
                 }
@@ -36,12 +41,35 @@ struct ProfileView: View {
                 .cornerRadius(20)
 
                 Spacer(minLength: 0)
+
+                Button(role: .destructive) {
+                    isConfirmingSignOut = true
+                } label: {
+                    Text("Sign Out")
+                        .font(.headline)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 14)
+                        .background(AppColors.contentSurface)
+                        .cornerRadius(16)
+                }
             }
             .padding(16)
             .frame(maxHeight: .infinity)
             .background(AppColors.pageBackground)
             .navigationTitle("Profile")
             .navigationBarTitleDisplayMode(.inline)
+            .confirmationDialog(
+                "Sign out of Arc Now?",
+                isPresented: $isConfirmingSignOut,
+                titleVisibility: .visible
+            ) {
+                Button("Sign Out", role: .destructive) {
+                    Task { await auth.signOut() }
+                }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("Workouts saved on this device stay put. You will need to sign in again to report busyness.")
+            }
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
                     LogoView()
