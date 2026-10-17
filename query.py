@@ -20,9 +20,10 @@ def get_attendance_calendar(
     user_id: int,
     start_date: date,
     end_date: date,
+    timezone: str = "UTC",
 ) -> List[Tuple[date, int]]:
     """Get daily workout counts for the inclusive date range."""
-    return database.get_attendance_calendar(user_id, start_date, end_date)
+    return database.get_attendance_calendar(user_id, start_date, end_date, timezone)
 
 
 def insert_user_login(

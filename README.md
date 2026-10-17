@@ -6,25 +6,85 @@ Using SWIFT for the front end of the app, using SQL and Supabase for the databas
 
 ## Workout attendance calendar
 
-Run [`workout_attendance.sql`](./workout_attendance.sql) in the Supabase SQL editor
-to create the attendance event table. Each row represents one visit; `attended_at`
-stores a time-zone-aware instant, and `user_id` associates it with a user.
-Calendar days and weeks can be calculated in the user's local time zone. Multiple
-visits on the same day are allowed.
+The current API stores each visit as a `presence = TRUE` row in `user_data`,
+using a time-zone-aware `timestamp`. It can return daily counts in the user's
+IANA time zone; multiple visits on one day are counted separately. The
+standalone [`workout_attendance.sql`](./workout_attendance.sql) file describes an
+alternative table and is not used by this API.
 
-Count a user's visits per week with:
+## HTTP API for the Swift app
 
-```sql
-SELECT date_trunc(
-           'week',
-           attended_at AT TIME ZONE 'America/Los_Angeles'
-       ) AS week_start,
-       COUNT(*) AS visits
-FROM workout_attendance
-WHERE user_id = $1
-GROUP BY week_start
-ORDER BY week_start;
+The Swift client calls this API over HTTPS; it must not connect directly to
+PostgreSQL or contain database credentials. The API verifies Supabase access
+tokens with Supabase Auth. The user must have a confirmed Supabase email matching
+an existing row in `users`; the API links that row to the Supabase user ID on
+first request. It never accepts a client-supplied `user_id`.
+
+### Configure and run
+
+1. Ensure the existing `users` table is created, then run
+   [`api_migration.sql`](./api_migration.sql) in the Supabase SQL editor. It
+   creates `user_data` and adds the Supabase-user link.
+   The timestamp conversion assumes existing `user_data.timestamp` values were
+   stored in UTC.
+2. Copy [`.env.example`](./.env.example) to `.env` and set `SUPABASE_URL`,
+   `SUPABASE_PUBLISHABLE_KEY`, and `DATABASE_URL` from your Supabase project.
+   Keep `.env` private; only the publishable key is intended for client use.
+3. Install dependencies and start the API:
+
+   ```sh
+   python -m pip install -r requirements.txt
+   uvicorn api:app --host 0.0.0.0 --port 8000
+   ```
+
+Use the Supabase database connection string with SSL for `DATABASE_URL`. For a
+deployed app, put the API behind HTTPS and configure these values as server-side
+environment variables. Interactive API documentation is available at `/docs`.
+
+### Endpoints
+
+All `/v1` endpoints require:
+
+```http
+Authorization: Bearer <Supabase access token>
 ```
 
-Replace `$1` with the user's id and use their IANA time zone in place of
-`America/Los_Angeles` so visits are grouped by their local calendar week.
+Record a visit (the server uses the current time):
+
+```http
+POST /v1/attendance
+Content-Type: application/json
+```
+
+To provide a visit time instead, send an ISO-8601 timestamp with an offset:
+
+```json
+{"attended_at": "2026-10-17T10:30:00-07:00"}
+```
+
+The response is `201 Created`:
+
+```json
+{"id": 123, "attended_at": "2026-10-17T17:30:00+00:00"}
+```
+
+Read daily counts for an inclusive range:
+
+```http
+GET /v1/attendance/calendar?start=2026-10-12&end=2026-10-18&timezone=America/Los_Angeles
+```
+
+The response includes every date in the range, including days with no visits:
+
+```json
+{
+  "timezone": "America/Los_Angeles",
+  "days": [
+    {"date": "2026-10-12", "visits": 1},
+    {"date": "2026-10-13", "visits": 0}
+  ]
+}
+```
+
+The date range is limited to 366 days. `GET /health` is a public process-health
+check and does not verify database connectivity.
