@@ -127,8 +127,14 @@ Authorization: Bearer <Supabase access token>
 replaces their previous vote. Only reports updated within the rolling last 30
 minutes count, and at most the 10 newest are used. The API recalculates on each
 GET request; no scheduled job is required. As reports age past 30 minutes, they
-stop contributing. With no recent reports, the response is
-`{"level": null, "report_count": 0}`.
+stop contributing. `report_count` is the number of users contributing to this
+calculation (maximum 10), because each user has only one current report. With
+no recent reports, the API falls back to the illustrative schedule for the
+current hour in `America/Los_Angeles`. The stored 0–100 schedule value is
+divided by 10 to match the live 1–10 scale, and `report_count` remains `0` to
+show that the result came from historical rather than recent user reports.
+Because the schedule only contains 6 AM–11 PM entries, `level` is `null`
+outside those hours when there are no recent reports.
 
 ### Import the illustrative weekly chart
 

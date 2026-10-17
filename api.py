@@ -245,7 +245,4 @@ def read_crowd_level(
     database: db.Database = Depends(get_database),
 ) -> CrowdLevelResponse:
     level, report_count = query.get_crowd_level(database)
-
-    
-
     return CrowdLevelResponse(level=level, report_count=report_count)

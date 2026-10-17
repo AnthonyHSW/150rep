@@ -34,7 +34,7 @@ def submit_crowd_level(
 
 
 def get_crowd_level(database: db.Database) -> Tuple[Optional[float], int]:
-    """Return the average of current crowd reports and its report count."""
+    """Return the crowd average and number of contributing users."""
     return database.get_crowd_level()
 
 

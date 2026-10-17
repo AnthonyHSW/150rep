@@ -146,29 +146,42 @@ class Database:
         return updated_at
 
     def get_crowd_level(self) -> Tuple[Optional[float], int]:
-        """Average up to 10 most recently updated reports from the last 30 minutes."""
+        """Return recent votes or this hour's historical Los Angeles schedule level."""
         self.cursor.execute('''
-            SELECT AVG(recent_reports.level)::FLOAT, COUNT(*)
-            FROM (
+            WITH recent_reports AS (
                 SELECT level
                 FROM crowd_reports
                 WHERE updated_at >= CURRENT_TIMESTAMP - INTERVAL '30 minutes'
                 ORDER BY updated_at DESC, user_id
                 LIMIT 10
-            ) AS recent_reports
+            ),
+            live_level AS (
+                SELECT AVG(level)::FLOAT AS average, COUNT(*) AS report_count
+                FROM recent_reports
+            ),
+            local_time AS (
+                SELECT CURRENT_TIMESTAMP AT TIME ZONE 'America/Los_Angeles' AS value
+            )
+            SELECT COALESCE(
+                       live_level.average,
+                       (
+                           SELECT crowd_schedule.level / 10.0
+                           FROM public.crowd_schedule
+                           WHERE crowd_schedule.day_of_week =
+                               CASE EXTRACT(DOW FROM local_time.value)::INTEGER
+                                   WHEN 0 THEN 7
+                                   ELSE EXTRACT(DOW FROM local_time.value)::INTEGER
+                               END
+                             AND crowd_schedule.hour_of_day =
+                                 EXTRACT(HOUR FROM local_time.value)::INTEGER
+                       )
+                   ),
+                   live_level.report_count
+            FROM live_level
+            CROSS JOIN local_time
         ''')
         average, report_count = self.cursor.fetchone()
         return average, report_count
-
-    def get_crowd_schedule_values(self, day_of_week: int) -> List[float]:
-        """Return a day's illustrative schedule levels scaled from 0-100 to 0-10."""
-        self.cursor.execute('''
-            SELECT level / 10.0
-            FROM public.crowd_schedule
-            WHERE day_of_week = %s
-            ORDER BY hour_of_day
-        ''', (day_of_week,))
-        return [float(row[0]) for row in self.cursor.fetchall()]
 
     def insert_user_login(self, name, email, password):
         """Insert a local account for a UCI email address."""
