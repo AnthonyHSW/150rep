@@ -33,7 +33,22 @@ struct WorkoutStore {
 
     // MARK: - Session lifecycle
 
+    /// Starts a workout — or hands back the one already in flight.
+    ///
+    /// Returning the existing session instead of inserting a second is what keeps Finish
+    /// working. Only one workout can be happening at a time, but nothing stopped Start from
+    /// being tapped while a session was open, and each tap added another `.active` row. With
+    /// several in the store, finishing one only promotes the next into the In Progress
+    /// section — same default title, same start-time formatting — so the workout appears not
+    /// to have finished at all.
+    ///
+    /// `title` applies only to a genuinely new session; resuming keeps whatever the workout
+    /// was already called, including a name the user chose.
     func startSession(title: String = WorkoutSession.defaultTitle()) throws -> WorkoutSession {
+        if let inFlight = try interruptedSession() {
+            return inFlight
+        }
+
         let session = WorkoutSession(title: title)
         modelContext.insert(session)
         try save()
