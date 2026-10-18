@@ -6,6 +6,12 @@ import SwiftUI
 /// on that screen that pages, and the rest of the page has nothing to do with it. Loads the
 /// first ten and extends the list as the bottom of it comes into view.
 struct LeaderboardSection: View {
+    /// Bumped by the page when something has happened that the standings should reflect —
+    /// a crowd report going through, which is what earns karma. Taken as a value rather
+    /// than exposing a reload method, so the only thing the caller can ask for is "read it
+    /// again", and the paging state stays this view's business.
+    var refreshTrigger: Int = 0
+
     /// How many rows the first load asks for, and how many each extension adds.
     private static let pageSize = 10
 
@@ -14,9 +20,11 @@ struct LeaderboardSection: View {
     /// section learns it has reached the end, so the two deliberately diverge there.
     @State private var requestedCount = 0
     @State private var isLoading = false
-    /// False once a response comes back shorter than it was asked for, or once the
-    /// endpoint's ceiling is reached. Stops the sentinel from asking forever.
-    @State private var canLoadMore = true
+    /// How many ranked users there are, once that is known — a response shorter than it was
+    /// asked for is what proves it. Held rather than folded into a flag because collapsing
+    /// the list must not forget it: `requestedCount` goes back down, and without this the
+    /// card would offer to expand into rows it already knows aren't there.
+    @State private var knownTotal: Int?
     /// The last failure, kept on screen until a retry. A leaderboard that simply stays
     /// empty is indistinguishable from one nobody has scored on yet.
     @State private var hasFailed = false
@@ -35,14 +43,6 @@ struct LeaderboardSection: View {
                         }
 
                         LeaderboardRow(entry: entry)
-                            // The sentinel is the last row itself rather than a spacer under
-                            // it: a trailing view would also be on screen while the first
-                            // page is still arriving, and would fire a second request for
-                            // rows the first one is already fetching.
-                            .onAppear {
-                                guard index == entries.count - 1 else { return }
-                                Task { await loadMore() }
-                            }
                     }
                 }
 
@@ -53,6 +53,8 @@ struct LeaderboardSection: View {
                         .padding(.top, 4)
                 } else if hasFailed {
                     retryRow
+                } else {
+                    expandControls
                 }
             }
         }
@@ -61,11 +63,17 @@ struct LeaderboardSection: View {
         .background(AppColors.contentSurface)
         .cornerRadius(20)
         .task {
-            // Only the first page; later ones are pulled by the sentinel. Guarded because
+            // Only the first page; the rest is asked for by the button. Guarded because
             // `.task` runs again whenever the view is reattached, and the rows already
             // loaded are the ones it would be refetching.
             guard entries.isEmpty, !isLoading else { return }
             await loadMore()
+        }
+        .task(id: refreshTrigger) {
+            // Skips the initial value, which `.task` above has already covered — this one
+            // fires on every change *and* on first appearance.
+            guard refreshTrigger != 0 else { return }
+            await reload()
         }
     }
 
@@ -105,6 +113,33 @@ struct LeaderboardSection: View {
         }
     }
 
+    /// Expand and collapse. Shown together once the list has grown, so the way back is in
+    /// the same place as the way down — the card is tall by then, and the only other way to
+    /// shrink it would be leaving the screen.
+    @ViewBuilder
+    private var expandControls: some View {
+        HStack(spacing: 16) {
+            if canLoadMore {
+                Button {
+                    Task { await loadMore() }
+                } label: {
+                    Label("Show More", systemImage: "chevron.down")
+                        .font(.caption.weight(.semibold))
+                }
+            }
+
+            if entries.count > Self.pageSize {
+                Button(action: collapse) {
+                    Label("Show Less", systemImage: "chevron.up")
+                        .font(.caption.weight(.semibold))
+                }
+            }
+        }
+        .tint(AppColors.brandBlue)
+        .frame(maxWidth: .infinity, alignment: .center)
+        .padding(.top, 8)
+    }
+
     private var retryRow: some View {
         HStack(spacing: 8) {
             Text("Couldn't load the leaderboard.")
@@ -125,30 +160,57 @@ struct LeaderboardSection: View {
         .padding(.vertical, 4)
     }
 
+    /// Whether there is anything further to show: rows the endpoint will still serve, and
+    /// that it hasn't already told us don't exist.
+    private var canLoadMore: Bool {
+        guard requestedCount < LeaderboardService.maximumLimit else { return false }
+        guard let knownTotal else { return true }
+        return requestedCount < knownTotal
+    }
+
     /// Extend the list by one page, or load the first one.
-    ///
-    /// The endpoint pages by count rather than offset, so this asks for a longer list and
-    /// replaces what it holds. The rows it already had come back identical — they are
-    /// ranked in the same response as the new ones — so nothing on screen jumps.
     private func loadMore() async {
-        guard !isLoading, canLoadMore, !hasFailed else { return }
+        guard canLoadMore || entries.isEmpty, !hasFailed else { return }
 
         let target = min(requestedCount + Self.pageSize, LeaderboardService.maximumLimit)
-        guard target > requestedCount else {
-            canLoadMore = false
-            return
-        }
+        guard target > requestedCount else { return }
+
+        await load(limit: target)
+    }
+
+    /// Back to the first page, without a request: these rows were ranked in the same
+    /// response as the ones being dropped, so what's left is already the top ten.
+    private func collapse() {
+        entries = Array(entries.prefix(Self.pageSize))
+        requestedCount = Self.pageSize
+    }
+
+    /// Re-read however far the list has been expanded. Karma moves people between ranks
+    /// rather than adding rows, so collapsing back to ten on every report would fold up a
+    /// list the user had deliberately opened.
+    private func reload() async {
+        await load(limit: max(requestedCount, Self.pageSize))
+    }
+
+    /// Fetch `limit` rows and replace what's held.
+    ///
+    /// The endpoint pages by count rather than offset, so a longer list is how a further
+    /// page is read. Everything comes back ranked in one response, so the rows already on
+    /// screen can't disagree with the new ones and nothing jumps.
+    private func load(limit: Int) async {
+        guard !isLoading else { return }
 
         isLoading = true
         defer { isLoading = false }
 
         do {
-            let page = try await LeaderboardService.fetchLeaderboard(limit: target)
+            let page = try await LeaderboardService.fetchLeaderboard(limit: limit)
             entries = page
-            requestedCount = target
-            // Short of what was asked for means there is nobody else to rank; reaching the
-            // endpoint's ceiling means there is nothing further it will serve.
-            canLoadMore = page.count >= target && target < LeaderboardService.maximumLimit
+            requestedCount = limit
+            hasFailed = false
+            // Short of what was asked for is the only evidence of the end there is — the
+            // response carries no total — so a full page leaves the question open.
+            if page.count < limit { knownTotal = page.count }
         } catch {
             print("Failed to load leaderboard: \(error)")
             hasFailed = true

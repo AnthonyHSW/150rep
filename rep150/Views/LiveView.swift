@@ -21,6 +21,10 @@ struct LiveView: View {
     /// said out loud: the buttons go back to looking untouched either way, so without this
     /// a blocked report is indistinguishable from one that quietly worked.
     @State private var reportFailure: CrowdReportFailure? = nil
+    /// Bumped after a report the backend accepted, to send the leaderboard back for the
+    /// standings it has just changed — karma is awarded on the submit, so the rank on
+    /// screen is out of date the moment one goes through.
+    @State private var leaderboardRefreshes = 0
 
     @Environment(\.scenePhase) private var scenePhase
 
@@ -52,7 +56,7 @@ struct LiveView: View {
                     )
 
                     // Karma Leaderboard
-                    LeaderboardSection()
+                    LeaderboardSection(refreshTrigger: leaderboardRefreshes)
                 }
                 .padding(.horizontal, 16)
                 .padding(.top, 8)
@@ -104,6 +108,10 @@ struct LiveView: View {
                 selectedReport = level
                 reportedAt = Date()
                 scheduleReportExpiry()
+                // Both readings the report has just changed: the meter, and the standings
+                // the karma it earned belongs to. Only on the success path — a refused
+                // report changes neither.
+                leaderboardRefreshes += 1
                 await refreshSnapshot()
             } catch {
                 print("Failed to submit crowd report: \(error)")
