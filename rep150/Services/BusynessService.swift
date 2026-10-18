@@ -92,12 +92,13 @@ struct BusynessService {
         request.httpMethod = "POST"
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.httpBody = try JSONEncoder().encode(
+        request.httpBody = try reportEncoder.encode(
             CrowdReportInsert(
                 level: level,
                 latitude: location.coordinate.latitude,
                 longitude: location.coordinate.longitude,
-                accuracyMeters: location.horizontalAccuracy
+                accuracyMeters: location.horizontalAccuracy,
+                locationTimestamp: location.timestamp
             )
         )
 
@@ -111,6 +112,15 @@ struct BusynessService {
             throw LocationGateError.outsideGeofence(distance: nil)
         }
     }
+
+    /// ISO 8601, with the offset the backend needs to age the fix. The default
+    /// `.deferredToDate` would send a bare number of seconds since 2001, which it reads as a
+    /// naive timestamp and rejects for carrying no timezone.
+    private static let reportEncoder: JSONEncoder = {
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        return encoder
+    }()
 
     /// Check a protected response, telling `AuthService` first when the backend refuses
     /// the token. The UCI rule is enforced server-side, so a 403 here is how the app

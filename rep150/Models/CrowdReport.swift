@@ -26,12 +26,18 @@ struct CrowdReportInsert: Encodable {
     /// The fix's own horizontal error estimate, in metres, so the backend can apply the
     /// same "too rough to act on" floor the app does instead of trusting a vague fix.
     let accuracyMeters: Double
+    /// When the fix was taken — `CLLocation.timestamp`, not the moment of the request. The
+    /// backend refuses anything older than two minutes: coordinates prove where the device
+    /// was, and without this they don't say when, so a cached fix from this morning would
+    /// otherwise pass the radius check from anywhere.
+    let locationTimestamp: Date
 
     enum CodingKeys: String, CodingKey {
         case level
         case latitude
         case longitude
         case accuracyMeters = "accuracy_m"
+        case locationTimestamp = "location_timestamp"
     }
 }
 

@@ -21,13 +21,15 @@ struct LeaderboardEntry: Identifiable, Decodable {
     var id: Int { rank }
 
     enum CodingKeys: String, CodingKey {
-        case rank, karma
-        case name = "display_name"
+        // `name`, not `display_name`: the ranking query aliases the column that way
+        // internally, but `LeaderboardEntry` in api.py publishes it as `name`.
+        case rank, karma, name
         case photoUrl = "photo_url"
     }
 
-    /// Who the row belongs to. The neutral fallback is the backend's own: a profile with no
-    /// name displays as "UCI Student" rather than exposing the address behind it.
+    /// Who the row belongs to. The backend already coalesces a blank name to "UCI Student"
+    /// and never sends the address behind it, so this fallback only covers a row that
+    /// arrives without the field at all.
     var displayName: String {
         let trimmed = name?.trimmingCharacters(in: .whitespaces) ?? ""
         return trimmed.isEmpty ? "UCI Student" : trimmed
