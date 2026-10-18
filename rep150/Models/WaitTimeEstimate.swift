@@ -34,11 +34,15 @@ struct WaitTimeEstimate: Equatable {
         )
     }
 
-    /// Phrasing for the meter. A zero lower bound is written as "Under n min" rather
+    /// The range alone, for callers that label it themselves — the gauge prints
+    /// "wait" beneath it. A zero lower bound is written as "Under n min" rather
     /// than "0–n min", which reads like a broken range.
-    var description: String {
+    var rangeText: String {
         lowMinutes == 0
-            ? "Under \(highMinutes) min wait"
-            : "\(lowMinutes)–\(highMinutes) min wait"
+            ? "Under \(highMinutes) min"
+            : "\(lowMinutes)–\(highMinutes) min"
     }
+
+    /// The same estimate as a phrase that stands on its own.
+    var description: String { "\(rangeText) wait" }
 }
