@@ -178,3 +178,56 @@ class Database:
         ''')
         average, report_count = self.cursor.fetchone()
         return average, report_count
+
+    def create_machine(
+        self, name: str, location: Optional[str] = None
+    ) -> Tuple[int, str, Optional[str], datetime]:
+        """Add a physical machine to the shared inventory."""
+        self.cursor.execute(
+            '''
+            INSERT INTO machines (name, location)
+            VALUES (%s, %s)
+            RETURNING id, name, location, created_at
+            ''',
+            (name, location),
+        )
+        machine = self.cursor.fetchone()
+        self.conn.commit()
+        return machine
+
+    def get_machines(
+        self,
+    ) -> List[Tuple[int, str, Optional[str], Optional[bool], Optional[datetime]]]:
+        """List machines with their latest in-use state, if one has been reported."""
+        self.cursor.execute(
+            '''
+            SELECT machines.id, machines.name, machines.location,
+                   machine_status.is_in_use, machine_status.updated_at
+            FROM machines
+            LEFT JOIN machine_status ON machine_status.machine_id = machines.id
+            ORDER BY machines.name, machines.location NULLS FIRST, machines.id
+            '''
+        )
+        return self.cursor.fetchall()
+
+    def set_machine_in_use(
+        self, machine_id: int, user_id: int, is_in_use: bool
+    ) -> Optional[Tuple[int, bool, datetime]]:
+        """Create or replace the current status report for a machine."""
+        self.cursor.execute(
+            '''
+            INSERT INTO machine_status (machine_id, is_in_use, updated_by)
+            SELECT id, %s, %s
+            FROM machines
+            WHERE id = %s
+            ON CONFLICT (machine_id)
+            DO UPDATE SET is_in_use = EXCLUDED.is_in_use,
+                          updated_at = CURRENT_TIMESTAMP,
+                          updated_by = EXCLUDED.updated_by
+            RETURNING machine_id, is_in_use, updated_at
+            ''',
+            (is_in_use, user_id, machine_id),
+        )
+        status = self.cursor.fetchone()
+        self.conn.commit()
+        return status
