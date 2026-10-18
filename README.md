@@ -268,7 +268,42 @@ Content-Type: application/json
 ```
 
 Levels must be integers from 1 through 10. Each user has one current report;
-submitting again updates that user's level instead of adding another vote.
+submitting again updates that user's level instead of adding another vote. Each
+submission awards one karma point at most once per 30-minute window; further
+submissions still update the current crowd report but do not add more points in
+that window.
+
+Before using karma, run [`karma_migration.sql`](./karma_migration.sql) in the
+Supabase SQL editor after `api_migration.sql`. It adds the all-time karma counter,
+the cooldown timestamp, and an optional avatar URL to `public.users`. The API
+syncs the user's display name and HTTPS avatar URL from their verified Supabase
+Auth profile metadata. Emails are not returned by the leaderboard.
+
+Get the all-time leaderboard (default 50 entries, maximum 100):
+
+```http
+GET /v1/leaderboard?limit=50
+Authorization: Bearer <Supabase access token>
+```
+
+```json
+[
+  {"rank": 1, "name": "Alex Example", "photo_url": "https://...", "karma": 12},
+  {"rank": 2, "name": "UCI Student", "photo_url": null, "karma": 8}
+]
+```
+
+The crowd-report response now also includes the submitter's total karma and
+whether this submission earned a point:
+
+```json
+{
+  "level": 6,
+  "updated_at": "2026-10-18T02:30:00+00:00",
+  "karma_points": 13,
+  "karma_awarded": true
+}
+```
 
 Get the average of the 10 most recently updated reports from the last 30
 minutes:

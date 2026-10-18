@@ -82,6 +82,15 @@ class CrowdLevelResponse(BaseModel):
 class CrowdLevelSubmissionResponse(BaseModel):
     level: int
     updated_at: datetime
+    karma_points: int
+    karma_awarded: bool
+
+
+class LeaderboardEntry(BaseModel):
+    rank: int
+    name: str
+    photo_url: Optional[str]
+    karma: int
 
 
 class CrowdScheduleResponse(BaseModel):
@@ -122,6 +131,8 @@ class MachineStatusResponse(BaseModel):
 class SupabaseIdentity(BaseModel):
     id: str
     email: Optional[str] = None
+    display_name: Optional[str] = None
+    avatar_url: Optional[str] = None
 
 
 def require_uci_email(email: str) -> str:
@@ -308,8 +319,30 @@ async def verify_supabase_access_token(
             status_code=502, detail="Supabase Auth returned an invalid user response"
         )
     email = auth_user.get("email")
+    metadata = auth_user.get("user_metadata")
+    if not isinstance(metadata, dict):
+        metadata = {}
 
-    return SupabaseIdentity(id=auth_user_id, email=email if isinstance(email, str) else None)
+    display_name_value = metadata.get("full_name") or metadata.get("name")
+    display_name = (
+        display_name_value.strip()[:100]
+        if isinstance(display_name_value, str) and display_name_value.strip()
+        else None
+    )
+    avatar_value = metadata.get("avatar_url") or metadata.get("picture")
+    avatar_url = (
+        avatar_value.strip()[:2048]
+        if isinstance(avatar_value, str)
+        and avatar_value.strip().casefold().startswith("https://")
+        else None
+    )
+
+    return SupabaseIdentity(
+        id=auth_user_id,
+        email=email if isinstance(email, str) else None,
+        display_name=display_name,
+        avatar_url=avatar_url,
+    )
 
 
 @app.post("/v1/auth/signup", response_model=SignupResponse, status_code=201)
@@ -375,7 +408,12 @@ def get_authenticated_user_id(
         raise HTTPException(
             status_code=403, detail="A valid @uci.edu Supabase account is required"
         )
-    return database.get_or_create_user_id(identity.id, identity.email)
+    return database.get_or_create_user_id(
+        identity.id,
+        identity.email,
+        identity.display_name,
+        identity.avatar_url,
+    )
 
 
 @app.get("/health")
@@ -537,11 +575,36 @@ def submit_crowd_level(
     user_id: int = Depends(get_authenticated_user_id),
     database: db.Database = Depends(get_database),
 ) -> CrowdLevelSubmissionResponse:
-    updated_at = query.submit_crowd_level(database, user_id, payload.level)
+    updated_at, karma_points, karma_awarded = query.submit_crowd_level(
+        database, user_id, payload.level
+    )
     return CrowdLevelSubmissionResponse(
         level=payload.level,
         updated_at=updated_at,
+        karma_points=karma_points,
+        karma_awarded=karma_awarded,
     )
+
+
+@app.get(
+    "/v1/leaderboard",
+    response_model=List[LeaderboardEntry],
+)
+def read_karma_leaderboard(
+    limit: int = Query(default=50, ge=1, le=100),
+    database: db.Database = Depends(get_database),
+    _: int = Depends(get_authenticated_user_id),
+) -> List[LeaderboardEntry]:
+    rows = query.get_karma_leaderboard(database, limit)
+    return [
+        LeaderboardEntry(
+            rank=rank,
+            name=name,
+            photo_url=photo_url,
+            karma=karma,
+        )
+        for rank, name, photo_url, karma in rows
+    ]
 
 
 @app.get(

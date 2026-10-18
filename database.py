@@ -117,20 +117,26 @@ class Database:
         self.conn.commit()
         return machine
 
-    def get_or_create_user_id(self, auth_user_id: str, email: Optional[str] = None) -> int:
-        """Resolve a Supabase user (anonymous or not) to a local account,
-        creating one on first sight. No email or prior signup is required."""
+    def get_or_create_user_id(
+        self,
+        auth_user_id: str,
+        email: Optional[str] = None,
+        display_name: Optional[str] = None,
+        avatar_url: Optional[str] = None,
+    ) -> int:
+        """Resolve an Auth user to a local account and refresh available profile details."""
         self.cursor.execute(
-            "SELECT id FROM users WHERE auth_user_id = %s",
-            (auth_user_id,),
-        )
-        existing_user = self.cursor.fetchone()
-        if existing_user:
-            return existing_user[0]
-
-        self.cursor.execute(
-            "INSERT INTO users (auth_user_id, email) VALUES (%s, %s) RETURNING id",
-            (auth_user_id, email),
+            '''
+            INSERT INTO users (auth_user_id, email, name, avatar_url)
+            VALUES (%s, %s, %s, %s)
+            ON CONFLICT (auth_user_id) WHERE auth_user_id IS NOT NULL
+            DO UPDATE SET
+                email = COALESCE(EXCLUDED.email, users.email),
+                name = COALESCE(EXCLUDED.name, users.name),
+                avatar_url = COALESCE(EXCLUDED.avatar_url, users.avatar_url)
+            RETURNING id
+            ''',
+            (auth_user_id, email, display_name, avatar_url),
         )
         user_id = self.cursor.fetchone()[0]
         self.conn.commit()
@@ -187,8 +193,10 @@ class Database:
         ''', (start_date, end_date, user_id, timezone, timezone))
         return self.cursor.fetchall()
 
-    def submit_crowd_level(self, user_id: int, level: int) -> datetime:
-        """Create or update this user's current crowd-level report."""
+    def submit_crowd_level(
+        self, user_id: int, level: int
+    ) -> Tuple[datetime, int, bool]:
+        """Upsert this user's current report and award at most one karma per 30 minutes."""
         self.cursor.execute('''
             INSERT INTO crowd_reports (user_id, level, updated_at)
             VALUES (%s, %s, CURRENT_TIMESTAMP)
@@ -198,8 +206,54 @@ class Database:
             RETURNING updated_at
         ''', (user_id, level))
         updated_at = self.cursor.fetchone()[0]
+
+        self.cursor.execute('''
+            UPDATE users
+            SET karma_points = karma_points + 1,
+                last_crowd_karma_at = CURRENT_TIMESTAMP
+            WHERE id = %s
+              AND (
+                  last_crowd_karma_at IS NULL
+                  OR last_crowd_karma_at <= CURRENT_TIMESTAMP - INTERVAL '30 minutes'
+              )
+            RETURNING karma_points
+        ''', (user_id,))
+        awarded_row = self.cursor.fetchone()
+        karma_awarded = awarded_row is not None
+        if karma_awarded:
+            karma_points = awarded_row[0]
+        else:
+            self.cursor.execute(
+                "SELECT karma_points FROM users WHERE id = %s",
+                (user_id,),
+            )
+            karma_row = self.cursor.fetchone()
+            if karma_row is None:
+                raise RuntimeError("Cannot award karma to a missing user")
+            karma_points = karma_row[0]
+
         self.conn.commit()
-        return updated_at
+        return updated_at, karma_points, karma_awarded
+
+    def get_karma_leaderboard(
+        self, limit: int = 50
+    ) -> List[Tuple[int, str, Optional[str], int]]:
+        """Return ranked user names, avatar URLs, and all-time karma without emails."""
+        self.cursor.execute(
+            '''
+            SELECT
+                ROW_NUMBER() OVER (ORDER BY karma_points DESC, id ASC)::INTEGER AS rank,
+                COALESCE(NULLIF(BTRIM(name), ''), 'UCI Student') AS display_name,
+                avatar_url,
+                karma_points
+            FROM users
+            WHERE auth_user_id IS NOT NULL
+            ORDER BY karma_points DESC, id ASC
+            LIMIT %s
+            ''',
+            (limit,),
+        )
+        return self.cursor.fetchall()
 
     def get_crowd_level(self) -> Tuple[Optional[float], int]:
         """Return recent votes or this hour's historical Los Angeles schedule level."""
