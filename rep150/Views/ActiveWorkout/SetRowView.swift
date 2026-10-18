@@ -21,7 +21,7 @@ struct SetRowView: View {
     /// slides aside to uncover the delete backdrop sitting behind it.
     @State private var dragOffset: CGFloat = 0
 
-    @AppStorage(PreferenceKey.weightUnit) private var weightUnit = WeightUnit.kilograms
+    @AppStorage(PreferenceKey.weightUnit) private var weightUnit = WeightUnit.default
 
     /// Exactly what the user has typed, held only while the field has focus.
     ///

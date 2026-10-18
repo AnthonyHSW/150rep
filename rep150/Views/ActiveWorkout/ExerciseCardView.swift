@@ -21,7 +21,7 @@ struct ExerciseCardView: View {
     var onDragChanged: (DragGesture.Value) -> Void = { _ in }
     var onDragEnded: (DragGesture.Value) -> Void = { _ in }
 
-    @AppStorage(PreferenceKey.weightUnit) private var weightUnit = WeightUnit.kilograms
+    @AppStorage(PreferenceKey.weightUnit) private var weightUnit = WeightUnit.default
 
     private var sortedSets: [ExerciseSet] {
         exercise.sets.sorted { $0.setNumber < $1.setNumber }
@@ -147,7 +147,7 @@ struct ExerciseCardHeaderView: View {
 /// Column headings (`SET`, `PREVIOUS`, the weight unit, `REPS`) shown above each exercise's
 /// set rows.
 struct SetColumnHeaderView: View {
-    @AppStorage(PreferenceKey.weightUnit) private var weightUnit = WeightUnit.kilograms
+    @AppStorage(PreferenceKey.weightUnit) private var weightUnit = WeightUnit.default
 
     var body: some View {
         HStack(spacing: 8) {

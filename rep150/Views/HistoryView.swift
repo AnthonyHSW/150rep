@@ -103,7 +103,7 @@ struct HistoryView: View {
 struct CompletedSessionRow: View {
     let session: WorkoutSession
 
-    @AppStorage(PreferenceKey.weightUnit) private var weightUnit = WeightUnit.kilograms
+    @AppStorage(PreferenceKey.weightUnit) private var weightUnit = WeightUnit.default
 
     @State private var thumbnail: UIImage?
 
