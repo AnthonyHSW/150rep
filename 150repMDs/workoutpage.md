@@ -5,3 +5,6 @@
 - I should be able to see whoever is at the gym right now in the workout.
     - Make the first page scrollable, and below the self reporting meter there should be a list of all the people who are active at the gym right now
 
+
+- The proflie page weekly workout box should be the same width as the profile box. 
+- I should be able to change the time of the workout

@@ -1,9 +1,37 @@
 import SwiftUI
+import SwiftData
 
 struct ProfileView: View {
     private let auth = AuthService.shared
 
+    /// Every completed workout, filtered down to this week in `workoutsThisWeek`.
+    ///
+    /// The week boundary is deliberately *not* in the predicate: a `@Query` filter is built
+    /// once when the view is created, and this screen lives for as long as the app does, so a
+    /// baked-in "start of this week" would still be last week's Monday after midnight on
+    /// Sunday. Filtering in Swift against a date read at render time is what keeps the count
+    /// honest across a week rollover.
+    @Query(
+        filter: #Predicate<WorkoutSession> { $0.statusRaw == "completed" },
+        sort: \WorkoutSession.startTime,
+        order: .reverse
+    )
+    private var completedSessions: [WorkoutSession]
+
+    @Environment(\.scenePhase) private var scenePhase
+
     @State private var isConfirmingSignOut = false
+
+    /// Re-read when the app comes back to the foreground, so a week that turned over while
+    /// the app was backgrounded resets the count.
+    @State private var now = Date()
+
+    private var workoutsThisWeek: Int {
+        guard let week = Calendar.current.dateInterval(of: .weekOfYear, for: now) else { return 0 }
+        // Half-open on purpose: `dateInterval` gives the start of the *next* week as its end,
+        // so `contains` would count a workout logged in the small hours of next Monday.
+        return completedSessions.filter { $0.startTime >= week.start && $0.startTime < week.end }.count
+    }
 
     var body: some View {
         NavigationStack {
@@ -21,6 +49,10 @@ struct ProfileView: View {
                         .font(.caption)
                         .foregroundColor(.secondary)
                 }
+                // Matches the card below it. Without this the card hugged its contents, so
+                // its width tracked the length of the signed-in email and the two cards
+                // lined up only by coincidence.
+                .frame(maxWidth: .infinity)
                 .padding(20)
                 .background(AppColors.contentSurface)
                 .cornerRadius(20)
@@ -30,7 +62,7 @@ struct ProfileView: View {
                         .font(.system(size: 14, weight: .semibold))
                         .foregroundColor(.secondary)
 
-                    Text("0 workouts completed")
+                    Text(workoutsThisWeek == 1 ? "1 workout completed" : "\(workoutsThisWeek) workouts completed")
                         .font(.system(size: 16, weight: .semibold))
                 }
                 .frame(maxWidth: .infinity, alignment: .center)
@@ -56,6 +88,9 @@ struct ProfileView: View {
             .background(AppColors.pageBackground)
             .navigationTitle("Profile")
             .navigationBarTitleDisplayMode(.inline)
+            .onChange(of: scenePhase) { _, phase in
+                if phase == .active { now = Date() }
+            }
             .confirmationDialog(
                 "Sign out of Arc Now?",
                 isPresented: $isConfirmingSignOut,

@@ -97,15 +97,6 @@ struct WorkoutsView: View {
                     LogoView()
                         .frame(width: 70, height: 28)
                 }
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    Menu {
-                        Button("Create Routine", action: {})
-                        Button("Manage Routines", action: {})
-                    } label: {
-                        Image(systemName: "ellipsis.circle")
-                            .font(.headline)
-                    }
-                }
             }
             .task { loadInterruptedSession() }
             .task {
