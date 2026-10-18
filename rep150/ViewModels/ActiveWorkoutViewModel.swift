@@ -188,23 +188,27 @@ final class ActiveWorkoutViewModel: Identifiable {
         return true
     }
 
-    /// Pushes this session's photos to Supabase once it's been finished.
+    /// Pushes this session to Supabase once it's been settled — the workout itself, its
+    /// exercises and sets, and then its photos.
     ///
-    /// Deliberately fire-and-forget: uploading is best-effort, and the app has to stay usable
-    /// offline, so anything that doesn't land stays flagged pending for a later attempt
-    /// rather than holding the user on a finished workout. Captures the session and store
-    /// instead of `self` so the upload outlives this screen being dismissed.
-    func syncPhotos() {
+    /// Deliberately fire-and-forget: syncing is best-effort, and the app has to stay usable
+    /// offline, so anything that doesn't land stays pending for a later attempt rather than
+    /// holding the user on a finished workout. Captures the session and store instead of
+    /// `self` so the upload outlives this screen being dismissed.
+    ///
+    /// No pending-work guard the way the photo-only version had: the rows may be unchanged
+    /// but the session still has to exist server-side before its photos can reference it,
+    /// and an upsert of unchanged rows costs one request and changes nothing.
+    func syncWorkout() {
         let session = activeSession
-        guard session.photos.contains(where: \.needsUpload) else { return }
 
         Task { [store] in
             do {
-                try await WorkoutPhotoSyncService.syncPhotos(for: session, store: store)
+                try await WorkoutSyncService.sync(session, store: store)
             } catch {
-                // Not surfaced: the workout is already saved locally, and a failed upload is
-                // a normal offline outcome rather than something the user must act on.
-                print("Workout photo sync deferred: \(error)")
+                // Not surfaced: the workout is already saved locally, and a failed sync is a
+                // normal offline outcome rather than something the user must act on.
+                print("Workout sync deferred: \(error)")
             }
         }
     }

@@ -21,10 +21,28 @@ struct SetRowView: View {
     /// slides aside to uncover the delete backdrop sitting behind it.
     @State private var dragOffset: CGFloat = 0
 
+    @AppStorage(PreferenceKey.weightUnit) private var weightUnit = WeightUnit.kilograms
+
+    /// Exactly what the user has typed, held only while the field has focus.
+    ///
+    /// Deriving the field's text from the stored value alone can't represent a number
+    /// mid-entry: "13." parses to 13 and renders back as "13", so the decimal point is eaten
+    /// the moment it's typed and a fractional weight can't be entered at all. Keeping the raw
+    /// string until focus leaves lets the user type freely, and the stored value still
+    /// updates on every keystroke.
+    @State private var weightDraft: String?
+
     private var weightText: Binding<String> {
         Binding(
-            get: { set.weight == 0 ? "" : formatted(set.weight) },
-            set: { set.weight = Double($0) ?? 0 }
+            get: {
+                if let weightDraft { return weightDraft }
+                return set.weight == 0 ? "" : weightUnit.displayText(fromKilograms: set.weight)
+            },
+            set: { typed in
+                weightDraft = typed
+                // Stored in kilograms whatever is on screen, so history stays in one unit.
+                set.weight = weightUnit.toKilograms(Double(typed) ?? 0)
+            }
         )
     }
 
@@ -49,6 +67,11 @@ struct SetRowView: View {
         }
         .clipShape(RoundedRectangle(cornerRadius: 8))
         .gesture(swipeGesture)
+        .onChange(of: focusedField.wrappedValue) { _, field in
+            // Focus gone: drop the raw text so the field falls back to the stored value,
+            // rounded and in whatever unit is now selected.
+            if field != .weight(set.id) { weightDraft = nil }
+        }
         .contextMenu {
             Button("Delete Set", systemImage: "trash", role: .destructive, action: onDelete)
         }
@@ -138,11 +161,5 @@ struct SetRowView: View {
                     onDelete()
                 }
             }
-    }
-
-    private func formatted(_ value: Double) -> String {
-        value.truncatingRemainder(dividingBy: 1) == 0
-            ? String(Int(value))
-            : String(value)
     }
 }

@@ -57,6 +57,66 @@ class Database:
         ''')
         self.conn.commit()
 
+    def create_table_machines(self):
+        """Create the machines table and its lookup index."""
+        self.cursor.execute('''
+            CREATE TABLE IF NOT EXISTS machines (
+                id SERIAL PRIMARY KEY,
+                name TEXT NOT NULL UNIQUE,
+                location TEXT,
+                is_in_use BOOLEAN NOT NULL DEFAULT FALSE,
+                status_updated_at TIMESTAMPTZ,
+                status_updated_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+                created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
+        self.cursor.execute('''
+            CREATE INDEX IF NOT EXISTS machines_location_name_idx
+            ON machines (location, name)
+        ''')
+        self.conn.commit()
+
+    def list_machines(self) -> List[Tuple]:
+        """Return every machine with its latest status, grouped by location."""
+        self.cursor.execute('''
+            SELECT id, name, location, is_in_use, status_updated_at
+            FROM machines
+            ORDER BY location NULLS LAST, name
+        ''')
+        return self.cursor.fetchall()
+
+    def add_machine(self, name: str, location: Optional[str]) -> Optional[Tuple]:
+        """Add a machine, or return None if one by that name already exists.
+
+        Names are unique so repeated submissions can't quietly fill the list with
+        duplicate 'Leg Press 1' rows that nobody can tell apart.
+        """
+        self.cursor.execute('''
+            INSERT INTO machines (name, location)
+            VALUES (%s, %s)
+            ON CONFLICT (name) DO NOTHING
+            RETURNING id, name, location, is_in_use, status_updated_at
+        ''', (name, location))
+        machine = self.cursor.fetchone()
+        self.conn.commit()
+        return machine
+
+    def set_machine_status(
+        self, machine_id: int, is_in_use: bool, user_id: int
+    ) -> Optional[Tuple]:
+        """Update one machine's status, or return None if no such machine exists."""
+        self.cursor.execute('''
+            UPDATE machines
+            SET is_in_use = %s,
+                status_updated_at = CURRENT_TIMESTAMP,
+                status_updated_by = %s
+            WHERE id = %s
+            RETURNING id, name, location, is_in_use, status_updated_at
+        ''', (is_in_use, user_id, machine_id))
+        machine = self.cursor.fetchone()
+        self.conn.commit()
+        return machine
+
     def get_or_create_user_id(self, auth_user_id: str, email: Optional[str] = None) -> int:
         """Resolve a Supabase user (anonymous or not) to a local account,
         creating one on first sight. No email or prior signup is required."""

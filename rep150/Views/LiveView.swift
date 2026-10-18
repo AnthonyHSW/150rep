@@ -129,15 +129,9 @@ struct BusynessMeterSection: View {
             VStack(spacing: 8) {
                 HStack {
                     if hasData {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("\(snapshot.averageLevel)/10 · \(AppColors.crowdingLabel(for: snapshot.averageLevel))")
-                                .font(.system(size: 16, weight: .semibold))
-                                .foregroundColor(.primary)
-
-                            Text(WaitTimeEstimate.forLevel(snapshot.averageLevel).description)
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-                        }
+                        Text("\(snapshot.averageLevel)/10 · \(AppColors.crowdingLabel(for: snapshot.averageLevel))")
+                            .font(.system(size: 16, weight: .semibold))
+                            .foregroundColor(.primary)
                     } else {
                         Text("Gathering reports…")
                             .font(.system(size: 16, weight: .semibold))
@@ -308,9 +302,11 @@ struct BusynessMeterGauge: View {
                 if let value {
                     // Wait time, overlaid inside the semicircle
                     VStack(spacing: 2) {
-                        Text("~3–5 min")
+                        Text(WaitTimeEstimate.forLevel(Int(value)).rangeText)
                             .font(.system(size: 20, weight: .bold))
                             .foregroundColor(.primary)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.7)
                         Text("wait")
                             .font(.caption2)
                             .foregroundColor(.secondary)
@@ -410,10 +406,6 @@ struct DailyTrafficChartSection: View {
             Text("Typical \(weekdayName) pattern")
                 .font(.system(size: 16, weight: .semibold))
                 .foregroundColor(.primary)
-
-            Text("Sample data — live service not wired up yet")
-                .font(.caption2)
-                .foregroundColor(.secondary)
 
             VStack(spacing: 8) {
                 Chart {

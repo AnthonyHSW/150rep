@@ -28,6 +28,18 @@ final class WorkoutSession {
     @Relationship(deleteRule: .cascade, inverse: \WorkoutPhoto.workoutSession)
     var photos: [WorkoutPhoto] = []
 
+    /// When this session last reached Supabase, or `nil` if it never has.
+    ///
+    /// Optional for two reasons: a non-optional addition without a default would fail to open
+    /// the existing store, and "never synced" has to be representable — it's what decides
+    /// whether deleting a row needs a tombstone at all.
+    var syncedAt: Date?
+
+    /// Whether the server has never seen this session. Drives the catch-up sweep at launch;
+    /// finishing a workout syncs it outright rather than consulting this, since the upserts
+    /// are keyed on ids the device already owns and so cost nothing to repeat.
+    var needsSync: Bool { syncedAt == nil }
+
     var status: SessionStatus {
         get { SessionStatus(rawValue: statusRaw) ?? .active }
         set { statusRaw = newValue.rawValue }

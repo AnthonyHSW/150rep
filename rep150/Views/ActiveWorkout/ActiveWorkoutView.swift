@@ -110,7 +110,7 @@ struct ActiveWorkoutView: View {
                         // leaves — no confirmation to give.
                         Button("Done") {
                             viewModel.exitWorkout()
-                            viewModel.syncPhotos()
+                            viewModel.syncWorkout()
                             dismiss()
                         }
                         .fontWeight(.semibold)
@@ -141,7 +141,7 @@ struct ActiveWorkoutView: View {
                             // Only leave the workout once it's actually stored; otherwise the
                             // alert explains why and the session stays put.
                             if viewModel.finishWorkout() {
-                                viewModel.syncPhotos()
+                                viewModel.syncWorkout()
                                 dismiss()
                             }
                         },
