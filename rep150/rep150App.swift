@@ -13,6 +13,11 @@ import Supabase
 struct rep150App: App {
     @State private var auth = AuthService.shared
 
+    /// Applied at the root so the override covers the login wall and every sheet and
+    /// full-screen cover too — those are presented outside the tab view's hierarchy, so a
+    /// modifier further down would leave them on the system appearance.
+    @AppStorage(PreferenceKey.appearance) private var appearance = AppearanceSetting.system
+
     var body: some Scene {
         WindowGroup {
             AuthGate(auth: auth)
@@ -24,6 +29,7 @@ struct rep150App: App {
                     Task { try? await supabase.auth.session(from: url) }
                 }
                 .animation(.easeInOut(duration: 0.2), value: auth.state)
+                .preferredColorScheme(appearance.colorScheme)
         }
         .modelContainer(
             for: [

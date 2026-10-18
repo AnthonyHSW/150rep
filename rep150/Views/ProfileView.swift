@@ -89,31 +89,60 @@ struct ProfileView: View {
 struct SettingsView: View {
     @Environment(\.dismiss) var dismiss
 
+    private let auth = AuthService.shared
+
+    @AppStorage(PreferenceKey.weightUnit) private var weightUnit = WeightUnit.kilograms
+    @AppStorage(PreferenceKey.appearance) private var appearance = AppearanceSetting.system
+
+    @State private var isConfirmingSignOut = false
+
     var body: some View {
         Form {
             Section("Account") {
-                Text("olarsson@uci.edu")
+                // The signed-in account, not a hardcoded address.
+                Text(auth.account?.email ?? "Not signed in")
+                    .foregroundColor(.secondary)
             }
 
             Section("Preferences") {
-                Picker("Weight Units", selection: .constant("Pounds")) {
-                    Text("Pounds").tag("Pounds")
-                    Text("Kilograms").tag("Kilograms")
+                Picker("Weight Units", selection: $weightUnit) {
+                    ForEach(WeightUnit.allCases) { unit in
+                        Text(unit.name).tag(unit)
+                    }
                 }
 
-                Picker("Appearance", selection: .constant("System")) {
-                    Text("System").tag("System")
-                    Text("Light").tag("Light")
-                    Text("Dark").tag("Dark")
+                Picker("Appearance", selection: $appearance) {
+                    ForEach(AppearanceSetting.allCases) { setting in
+                        Text(setting.name).tag(setting)
+                    }
                 }
             }
 
             Section {
-                Button("Sign Out", role: .destructive) {}
+                Button("Sign Out", role: .destructive) {
+                    isConfirmingSignOut = true
+                }
+            } footer: {
+                // Switching units converts what is already recorded rather than relabelling
+                // it, so say so — otherwise a history that suddenly reads 132 instead of 60
+                // looks like the numbers were lost.
+                Text("Weights are stored in kilograms and converted for display, so changing units never alters a recorded workout.")
             }
         }
         .navigationTitle("Settings")
         .navigationBarTitleDisplayMode(.inline)
+        .confirmationDialog(
+            "Sign out of Arc Now?",
+            isPresented: $isConfirmingSignOut,
+            titleVisibility: .visible
+        ) {
+            Button("Sign Out", role: .destructive) {
+                Task { await auth.signOut() }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Workouts saved on this device stay put. You will need to sign in again to report busyness.")
+        }
     }
 }
 

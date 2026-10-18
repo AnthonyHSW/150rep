@@ -103,6 +103,8 @@ struct HistoryView: View {
 struct CompletedSessionRow: View {
     let session: WorkoutSession
 
+    @AppStorage(PreferenceKey.weightUnit) private var weightUnit = WeightUnit.kilograms
+
     @State private var thumbnail: UIImage?
 
     private var photos: [WorkoutPhoto] { session.orderedPhotos }
@@ -115,10 +117,7 @@ struct CompletedSessionRow: View {
     }
 
     private var volumeLabel: String {
-        let volume = session.totalVolume
-        return volume.truncatingRemainder(dividingBy: 1) == 0
-            ? "\(Int(volume)) kg"
-            : String(format: "%.1f kg", volume)
+        "\(weightUnit.displayText(fromKilograms: session.totalVolume)) \(weightUnit.abbreviation)"
     }
 
     var body: some View {

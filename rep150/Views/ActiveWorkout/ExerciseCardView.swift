@@ -21,6 +21,8 @@ struct ExerciseCardView: View {
     var onDragChanged: (DragGesture.Value) -> Void = { _ in }
     var onDragEnded: (DragGesture.Value) -> Void = { _ in }
 
+    @AppStorage(PreferenceKey.weightUnit) private var weightUnit = WeightUnit.kilograms
+
     private var sortedSets: [ExerciseSet] {
         exercise.sets.sorted { $0.setNumber < $1.setNumber }
     }
@@ -75,10 +77,7 @@ struct ExerciseCardView: View {
         guard let previous = previousSets.first(where: { $0.setNumber == setNumber }) ?? previousSets.last else {
             return nil
         }
-        let weightText = previous.weight.truncatingRemainder(dividingBy: 1) == 0
-            ? String(Int(previous.weight))
-            : String(previous.weight)
-        return "\(weightText) kg × \(previous.reps)"
+        return "\(weightUnit.displayText(fromKilograms: previous.weight)) \(weightUnit.abbreviation) × \(previous.reps)"
     }
 
     private func cycleType(of set: ExerciseSet) {
@@ -145,13 +144,16 @@ struct ExerciseCardHeaderView: View {
     }
 }
 
-/// Column headings (`SET`, `PREVIOUS`, `KG`, `REPS`) shown above each exercise's set rows.
+/// Column headings (`SET`, `PREVIOUS`, the weight unit, `REPS`) shown above each exercise's
+/// set rows.
 struct SetColumnHeaderView: View {
+    @AppStorage(PreferenceKey.weightUnit) private var weightUnit = WeightUnit.kilograms
+
     var body: some View {
         HStack(spacing: 8) {
             Text("SET").frame(width: 32, alignment: .center)
             Text("PREVIOUS").frame(width: 80, alignment: .leading)
-            Text("KG").frame(width: 60, alignment: .center)
+            Text(weightUnit.abbreviation.uppercased()).frame(width: 60, alignment: .center)
             Text("REPS").frame(width: 60, alignment: .center)
             Spacer().frame(width: 44)
         }
