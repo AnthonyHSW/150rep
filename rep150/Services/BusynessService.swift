@@ -1,3 +1,4 @@
+import CoreLocation
 import Foundation
 
 /// A rolled-up read of the current crowd level, used to drive the busyness meter.
@@ -40,6 +41,15 @@ struct BackendError: LocalizedError {
     var errorDescription: String? {
         "Backend returned \(statusCode): \(body)"
     }
+
+    /// Whether this is the backend refusing a report for coming from outside the Arc.
+    ///
+    /// It answers 422 with a `code` of `outside_geofence` rather than the 403 the status
+    /// would otherwise suggest: `validate` hands 401 and 403 to `AuthService`, which
+    /// signs the user out, and standing in the wrong place is not a bad session.
+    var isOutsideGeofence: Bool {
+        statusCode == 422 && body.contains("outside_geofence")
+    }
 }
 
 /// Reads and writes busyness through the backend API, which holds the service-level DB access.
@@ -69,17 +79,37 @@ struct BusynessService {
         )
     }
 
-    static func submitReport(level: Int) async throws {
+    /// Submit a report, proving where it came from.
+    ///
+    /// `location` must already have passed `LocationService.locationAtArc()`; it is sent
+    /// along so the backend can repeat that check for itself. Throws
+    /// `LocationGateError.outsideGeofence` if the backend disagrees with us about where
+    /// the reporter is — which it has the last word on.
+    static func submitReport(level: Int, from location: CLLocation) async throws {
         let token = try await AuthService.accessToken()
 
         var request = URLRequest(url: URL(string: "/v1/crowd-reports", relativeTo: APIConfig.baseURL)!)
         request.httpMethod = "POST"
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.httpBody = try JSONEncoder().encode(CrowdReportInsert(level: level))
+        request.httpBody = try JSONEncoder().encode(
+            CrowdReportInsert(
+                level: level,
+                latitude: location.coordinate.latitude,
+                longitude: location.coordinate.longitude,
+                accuracyMeters: location.horizontalAccuracy
+            )
+        )
 
         let (data, response) = try await URLSession.shared.data(for: request)
-        try await validate(response, data: data)
+
+        do {
+            try await validate(response, data: data)
+        } catch let error as BackendError where error.isOutsideGeofence {
+            // Reported without a distance: the backend says no, and its radius, not ours,
+            // is the one that applied.
+            throw LocationGateError.outsideGeofence(distance: nil)
+        }
     }
 
     /// Check a protected response, telling `AuthService` first when the backend refuses

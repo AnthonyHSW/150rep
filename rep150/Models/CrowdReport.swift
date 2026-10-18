@@ -14,8 +14,25 @@ struct CrowdReport: Codable {
 }
 
 /// Payload for submitting a new report; `id`/`created_at` are assigned by the database.
+///
+/// The coordinates are not stored as part of the report — the backend uses them once, to
+/// check the reporter is inside the Arc's geofence, and keeps only the verdict. They are
+/// sent on every submit because the check is the backend's to make: the app runs the same
+/// check first, but only so it can refuse early and explain why.
 struct CrowdReportInsert: Encodable {
     let level: Int
+    let latitude: Double
+    let longitude: Double
+    /// The fix's own horizontal error estimate, in metres, so the backend can apply the
+    /// same "too rough to act on" floor the app does instead of trusting a vague fix.
+    let accuracyMeters: Double
+
+    enum CodingKeys: String, CodingKey {
+        case level
+        case latitude
+        case longitude
+        case accuracyMeters = "accuracy_m"
+    }
 }
 
 /// Response body from `GET /v1/crowd-level`.
