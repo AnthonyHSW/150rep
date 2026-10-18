@@ -13,6 +13,8 @@ struct ActiveWorkoutView: View {
     @State private var isHeaderCondensed = false
     @FocusState private var focusedField: SetField?
 
+    @AppStorage(PreferenceKey.weightUnit) private var weightUnit = WeightUnit.default
+
     // Reorder state. `dragTranslationY` is the raw gesture translation; `dragSlotCompensation`
     // cancels out the layout shifts caused by live reordering and auto-scrolling, so the card
     // stays pinned under the finger no matter how many positions it has already travelled.
@@ -43,21 +45,13 @@ struct ActiveWorkoutView: View {
         viewModel.orderedExercises
     }
 
-    private var elapsedLabel: String {
-        let total = Int(viewModel.elapsedTime)
-        let hours = total / 3600
-        let minutes = (total % 3600) / 60
-        let seconds = total % 60
-        return hours > 0
-            ? String(format: "%d:%02d:%02d", hours, minutes, seconds)
-            : String(format: "%02d:%02d", minutes, seconds)
-    }
+    private var elapsedLabel: String { viewModel.elapsedTime.workoutClockText }
 
+    /// Volume is a sum of stored kilograms, so it converts like any other weight — the
+    /// unit can't be baked into the format string.
     private var totalVolumeLabel: String {
         let volume = viewModel.activeSession.totalVolume
-        return volume.truncatingRemainder(dividingBy: 1) == 0
-            ? "\(Int(volume)) kg"
-            : String(format: "%.1f kg", volume)
+        return "\(weightUnit.displayText(fromKilograms: volume)) \(weightUnit.abbreviation)"
     }
 
     var body: some View {

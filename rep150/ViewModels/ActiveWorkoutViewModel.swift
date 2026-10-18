@@ -34,9 +34,18 @@ final class ActiveWorkoutViewModel: Identifiable {
     /// save instead of silently carrying on.
     var persistenceErrorMessage: String?
 
+    /// How often an open workout is republished for watchers. A minute is slow enough that
+    /// watching costs one request per lifter per minute, and fast enough that a set ticked
+    /// off shows up while the person watching is still looking at the same screen.
+    static let liveBroadcastInterval: TimeInterval = 60
+
     private let store: WorkoutStore
     private var sessionTimer: Timer?
     private var restTimer: Timer?
+    private var liveBroadcastTimer: Timer?
+    /// The heartbeat request currently in flight, if any. Held so ending the broadcast can
+    /// wait for it instead of racing it.
+    private var liveBroadcastTask: Task<Void, Never>?
     private var hasNotifiedRestTarget = false
 
     init(session: WorkoutSession, store: WorkoutStore, mode: Mode = .live) {
@@ -48,6 +57,7 @@ final class ActiveWorkoutViewModel: Identifiable {
         switch mode {
         case .live:
             startSessionTimer()
+            startLiveBroadcast()
         case .editing:
             // Already finished, so the duration is a fact rather than something to count.
             elapsedTime = session.duration
@@ -61,6 +71,70 @@ final class ActiveWorkoutViewModel: Identifiable {
             MainActor.assumeIsolated {
                 guard let self else { return }
                 self.elapsedTime = Date().timeIntervalSince(self.activeSession.startTime)
+            }
+        }
+    }
+
+    // MARK: - Live broadcast
+
+    /// Starts publishing this workout for other users to watch, immediately and then on a
+    /// timer. Live mode only: a finished workout being corrected is not happening now, and
+    /// broadcasting it would put a workout from last Tuesday in everyone's Active Workouts.
+    func startLiveBroadcast() {
+        guard mode == .live, liveBroadcastTimer == nil else { return }
+
+        // Published straight away, not on the first tick: otherwise a workout nobody adds an
+        // exercise to for a minute isn't visible to anyone for that minute.
+        publishLiveProgress()
+
+        liveBroadcastTimer = Timer.scheduledTimer(
+            withTimeInterval: Self.liveBroadcastInterval,
+            repeats: true
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.publishLiveProgress()
+            }
+        }
+    }
+
+    /// Fire-and-forget, for the same reason `syncWorkout` is: the workout is already saved
+    /// locally, and a heartbeat that doesn't land costs the lifter nothing — it only means
+    /// watchers see this workout age out until the next one goes through.
+    ///
+    /// Captures the session and store rather than `self` so a request in flight isn't tied
+    /// to this screen still existing.
+    private func publishLiveProgress() {
+        let session = activeSession
+
+        liveBroadcastTask = Task { [store] in
+            do {
+                try await WorkoutSyncService.publishLiveProgress(session, store: store)
+            } catch {
+                print("Live workout broadcast deferred: \(error)")
+            }
+        }
+    }
+
+    /// Clears the heartbeat so watchers stop seeing this workout, without touching its
+    /// status — it stays `.active` locally so In Progress can still offer it to resume.
+    private func endLiveBroadcast() {
+        guard mode == .live else { return }
+        let session = activeSession
+        let inFlight = liveBroadcastTask
+        liveBroadcastTask = nil
+
+        Task {
+            // Wait out a heartbeat that was already on its way. Invalidating the timer stops
+            // new ones, but a request mid-flight carries a fresh timestamp, and landing after
+            // the clear would put the workout straight back in everyone's feed.
+            await inFlight?.value
+
+            do {
+                try await WorkoutSyncService.endLiveProgress(session)
+            } catch {
+                // The server's live window ages the workout out on its own, so a failure
+                // here delays the broadcast ending rather than leaving it running forever.
+                print("Live workout broadcast end deferred: \(error)")
             }
         }
     }
@@ -181,8 +255,10 @@ final class ActiveWorkoutViewModel: Identifiable {
         stopTimers()
         guard persist({ try store.finish(activeSession) }) else {
             // The workout is still live and the user is still in it — let the timers run on
-            // so they can retry Finish.
+            // so they can retry Finish, and keep it in everyone else's Active Workouts,
+            // because it hasn't finished.
             startSessionTimer()
+            startLiveBroadcast()
             return false
         }
         return true
@@ -220,6 +296,8 @@ final class ActiveWorkoutViewModel: Identifiable {
     func exitWorkout() {
         stopTimers()
         persist()
+        // After the save, so the last thing published is what the user actually left behind.
+        endLiveBroadcast()
     }
 
     func renameSession(to title: String) {
@@ -234,6 +312,8 @@ final class ActiveWorkoutViewModel: Identifiable {
         sessionTimer = nil
         restTimer?.invalidate()
         restTimer = nil
+        liveBroadcastTimer?.invalidate()
+        liveBroadcastTimer = nil
         isRestTimerRunning = false
     }
 

@@ -100,3 +100,21 @@ extension WorkoutSession {
         }
     }
 }
+
+extension TimeInterval {
+    /// A workout's elapsed time as a clock: `h:mm:ss` once it passes an hour, `mm:ss`
+    /// before that.
+    ///
+    /// Spelled once because two screens show the same clock — the owner's active workout
+    /// and a watcher's view of somebody else's — and a workout that reads 1:05:32 on one
+    /// and 65:32 on the other is the same workout described two ways.
+    var workoutClockText: String {
+        let total = Int(max(0, self))
+        let hours = total / 3600
+        let minutes = (total % 3600) / 60
+        let seconds = total % 60
+        return hours > 0
+            ? String(format: "%d:%02d:%02d", hours, minutes, seconds)
+            : String(format: "%02d:%02d", minutes, seconds)
+    }
+}

@@ -13,11 +13,38 @@ private struct WorkoutSessionRow: Encodable {
     let endTime: Date?
     let status: String
     let notes: String?
+    /// Non-nil only while the workout is open on screen; see `publishLiveProgress`. A null
+    /// here is what takes a workout back out of everyone else's Active Workouts list.
+    let lastActiveAt: Date?
+    /// The owner's own Google name and picture, denormalized so a watcher can see whose
+    /// workout this is without reading auth.users.
+    let ownerName: String?
+    let ownerAvatarUrl: String?
 
     enum CodingKeys: String, CodingKey {
         case id, title, status, notes
         case startTime = "start_time"
         case endTime = "end_time"
+        case lastActiveAt = "last_active_at"
+        case ownerName = "owner_name"
+        case ownerAvatarUrl = "owner_avatar_url"
+    }
+
+    /// Written by hand because the synthesized version uses `encodeIfPresent`, which drops
+    /// nil fields from the payload entirely — and an omitted column in an upsert leaves
+    /// whatever the server already had. Every nil here has to travel as an explicit null:
+    /// it is how a workout stops being live, and how a cleared note or end time clears.
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encode(title, forKey: .title)
+        try container.encode(status, forKey: .status)
+        try container.encode(startTime, forKey: .startTime)
+        try container.encode(endTime, forKey: .endTime)
+        try container.encode(notes, forKey: .notes)
+        try container.encode(lastActiveAt, forKey: .lastActiveAt)
+        try container.encode(ownerName, forKey: .ownerName)
+        try container.encode(ownerAvatarUrl, forKey: .ownerAvatarUrl)
     }
 }
 
@@ -63,6 +90,25 @@ private struct ExerciseSetRow: Encodable {
     }
 }
 
+/// Clears (or sets) just the live heartbeat on an existing session row.
+///
+/// A narrow update rather than an upsert through `WorkoutSessionRow`: ending a broadcast
+/// shouldn't depend on the local session still agreeing with the server about its title or
+/// its sets, and this way it is one column and one round trip. Encoded by hand for the same
+/// reason as that type — `encodeIfPresent` would drop the nil and the update would be empty.
+private struct LiveStampUpdate: Encodable {
+    let lastActiveAt: Date?
+
+    enum CodingKeys: String, CodingKey {
+        case lastActiveAt = "last_active_at"
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(lastActiveAt, forKey: .lastActiveAt)
+    }
+}
+
 // MARK: - Service
 
 /// Pushes workouts — sessions, exercises, sets, and the photos hanging off them — to Supabase.
@@ -83,6 +129,90 @@ struct WorkoutSyncService {
         // the server from briefly holding rows the user already removed.
         try await flushDeletions(store: store)
 
+        // `lastActiveAt: nil` because this is the settled push — the workout is finished, or
+        // being corrected afterwards. Only `publishLiveProgress` stamps a session live, so a
+        // workout can never be left broadcasting by the sync that put it in history.
+        let exercises = try await pushRows(session, lastActiveAt: nil)
+
+        try await reconcile(session, exercises: exercises)
+
+        // Stamped before the photos: the session and its contents are on the server at this
+        // point, and photos carry their own `uploadedAt`. Stamping after would mean a failed
+        // photo upload re-pushed every row next time for nothing.
+        try store.markSynced(session)
+
+        // Last, because `workout_photos.session_id` references the session row this pass just
+        // created. Its own stamping means already-uploaded photos are skipped.
+        try await WorkoutPhotoSyncService.syncPhotos(for: session, store: store)
+    }
+
+    /// Catches up everything outstanding: deletions first, then every session the server has
+    /// never seen. Doubles as the one-time backfill, since workouts recorded before syncing
+    /// existed have no `syncedAt` either.
+    static func syncPending(store: WorkoutStore) async throws {
+        try await flushDeletions(store: store)
+
+        // Sequential on purpose. These are one user's rows over one connection, and running
+        // them in order keeps each session's foreign key ordering intact without any
+        // coordination between sessions.
+        for session in try store.sessionsNeedingSync() {
+            try await sync(session, store: store)
+        }
+    }
+
+    // MARK: - Live broadcast
+
+    /// Pushes an open workout and stamps it live, so it appears under Active Workouts for
+    /// everyone else.
+    ///
+    /// Called when the workout screen opens and on a timer while it stays open, which is
+    /// what `last_active_at` is a record of — the heartbeat, not the edit. That matters for
+    /// the case `WorkoutStore.sessionsNeedingSync` already calls out: a live workout changes
+    /// on every tap, and pushing each one would spend a request on a workout that isn't
+    /// finished being written. A fixed interval is what makes watching affordable.
+    ///
+    /// Lighter than `sync` on purpose: no photos and no deletion flush. Photos are not
+    /// served to watchers at all (no policy grants them), and the deletion queue is the
+    /// settled sync's business — neither belongs on something that runs every minute.
+    static func publishLiveProgress(_ session: WorkoutSession, store: WorkoutStore) async throws {
+        let exercises = try await pushRows(session, lastActiveAt: Date())
+        try await reconcile(session, exercises: exercises)
+
+        // Stamped synced even though the photos haven't gone up, because `syncedAt` is also
+        // what `WorkoutStore.recordDeletion` consults: without it, discarding this workout
+        // would leave no tombstone and the server would keep serving a session the owner
+        // threw away. The photos are not lost — finishing the workout runs the full sync.
+        try store.markSynced(session)
+    }
+
+    /// Takes a workout back out of the live feed without finishing it.
+    ///
+    /// Exiting leaves a session `.active` so In Progress can offer it to resume, which means
+    /// status alone can't distinguish "being done right now" from "abandoned an hour ago" —
+    /// clearing the heartbeat is what does. The server's window would age it out anyway;
+    /// this makes it immediate, so leaving the screen stops the broadcast then and there.
+    static func endLiveProgress(_ session: WorkoutSession) async throws {
+        // A session the server never saw has no row to clear, and the update would match
+        // nothing.
+        guard !session.needsSync else { return }
+
+        try await supabase
+            .from(RemoteTable.workoutSessions.rawValue)
+            .update(LiveStampUpdate(lastActiveAt: nil))
+            .eq("id", value: session.id.uuidString)
+            .execute()
+    }
+
+    /// Upserts the session, its exercises, and its sets, returning the exercises in order so
+    /// the caller can reconcile against them. The one place either push path writes rows,
+    /// so the live broadcast and the settled sync can't drift into disagreeing about shape.
+    @discardableResult
+    private static func pushRows(
+        _ session: WorkoutSession,
+        lastActiveAt: Date?
+    ) async throws -> [ExerciseLog] {
+        let account = AuthService.shared.account
+
         try await supabase
             .from(RemoteTable.workoutSessions.rawValue)
             .upsert(
@@ -92,7 +222,10 @@ struct WorkoutSyncService {
                     startTime: session.startTime,
                     endTime: session.endTime,
                     status: session.statusRaw,
-                    notes: session.notes
+                    notes: session.notes,
+                    lastActiveAt: lastActiveAt,
+                    ownerName: account?.displayName,
+                    ownerAvatarUrl: account?.avatarURL?.absoluteString
                 ),
                 onConflict: "id"
             )
@@ -145,30 +278,7 @@ struct WorkoutSyncService {
                 .execute()
         }
 
-        try await reconcile(session, exercises: exercises)
-
-        // Stamped before the photos: the session and its contents are on the server at this
-        // point, and photos carry their own `uploadedAt`. Stamping after would mean a failed
-        // photo upload re-pushed every row next time for nothing.
-        try store.markSynced(session)
-
-        // Last, because `workout_photos.session_id` references the session row this pass just
-        // created. Its own stamping means already-uploaded photos are skipped.
-        try await WorkoutPhotoSyncService.syncPhotos(for: session, store: store)
-    }
-
-    /// Catches up everything outstanding: deletions first, then every session the server has
-    /// never seen. Doubles as the one-time backfill, since workouts recorded before syncing
-    /// existed have no `syncedAt` either.
-    static func syncPending(store: WorkoutStore) async throws {
-        try await flushDeletions(store: store)
-
-        // Sequential on purpose. These are one user's rows over one connection, and running
-        // them in order keeps each session's foreign key ordering intact without any
-        // coordination between sessions.
-        for session in try store.sessionsNeedingSync() {
-            try await sync(session, store: store)
-        }
+        return exercises
     }
 
     /// Carries local deletions through to the server.
