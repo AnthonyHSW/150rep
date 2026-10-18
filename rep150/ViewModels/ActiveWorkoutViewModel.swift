@@ -300,6 +300,18 @@ final class ActiveWorkoutViewModel: Identifiable {
         endLiveBroadcast()
     }
 
+    /// Changes when the workout happened: its start, and its end once it has one.
+    ///
+    /// The clock is refreshed here rather than waiting on the next tick, so the header agrees
+    /// with the sheet the moment it closes — in editing mode nothing ticks at all, so the
+    /// duration would otherwise keep showing the old span until the screen was reopened.
+    func rescheduleSession(startTime: Date, endTime: Date? = nil) {
+        guard persist({ try store.reschedule(activeSession, startTime: startTime, endTime: endTime) }) else {
+            return
+        }
+        elapsedTime = activeSession.duration
+    }
+
     func renameSession(to title: String) {
         let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }

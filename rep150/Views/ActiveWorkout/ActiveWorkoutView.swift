@@ -10,6 +10,7 @@ struct ActiveWorkoutView: View {
     @State private var isShowingFinishConfirm = false
     @State private var isRenamingSession = false
     @State private var sessionTitleDraft = ""
+    @State private var isEditingWorkoutTime = false
     @State private var isHeaderCondensed = false
     @FocusState private var focusedField: SetField?
 
@@ -144,6 +145,15 @@ struct ActiveWorkoutView: View {
                 }
             }
             .animation(.easeOut(duration: 0.15), value: isShowingFinishConfirm)
+            .sheet(isPresented: $isEditingWorkoutTime) {
+                WorkoutTimeEditorView(
+                    isFinished: viewModel.activeSession.endTime != nil,
+                    originalStart: viewModel.activeSession.startTime,
+                    originalEnd: viewModel.activeSession.endTime
+                ) { start, end in
+                    viewModel.rescheduleSession(startTime: start, endTime: end)
+                }
+            }
             .alert("Rename Workout", isPresented: $isRenamingSession) {
                 TextField("Workout name", text: $sessionTitleDraft)
                 Button("Cancel", role: .cancel) {}
@@ -261,7 +271,8 @@ struct ActiveWorkoutView: View {
                 elapsedLabel: elapsedLabel,
                 totalVolumeLabel: totalVolumeLabel,
                 completedSets: viewModel.activeSession.totalCompletedSets,
-                isCondensed: isHeaderCondensed
+                isCondensed: isHeaderCondensed,
+                onEditTime: { isEditingWorkoutTime = true }
             )
         }
     }
@@ -435,12 +446,19 @@ private struct WorkoutStatsHeaderView: View {
     let totalVolumeLabel: String
     let completedSets: Int
     let isCondensed: Bool
+    /// Opens the time editor. The duration is the one stat that isn't derived from the sets,
+    /// so it's also the only sensible place to reach what decides it.
+    let onEditTime: () -> Void
 
     var body: some View {
         Group {
             if isCondensed {
                 HStack(spacing: 6) {
-                    Text(elapsedLabel)
+                    Button(action: onEditTime) {
+                        Text(elapsedLabel)
+                            .foregroundColor(.primary)
+                    }
+                    .buttonStyle(.plain)
                     Text("·")
                     Text(totalVolumeLabel)
                     Text("·")
@@ -453,14 +471,22 @@ private struct WorkoutStatsHeaderView: View {
                 .padding(.vertical, 10)
             } else {
                 HStack {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("Duration")
+                    Button(action: onEditTime) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            HStack(spacing: 4) {
+                                Text("Duration")
+                                Image(systemName: "pencil")
+                                    .font(.caption2)
+                            }
                             .font(.caption)
                             .foregroundColor(.secondary)
-                        Text(elapsedLabel)
-                            .font(.system(size: 20, weight: .bold, design: .rounded))
-                            .monospacedDigit()
+                            Text(elapsedLabel)
+                                .font(.system(size: 20, weight: .bold, design: .rounded))
+                                .monospacedDigit()
+                                .foregroundColor(.primary)
+                        }
                     }
+                    .buttonStyle(.plain)
                     Spacer()
                     VStack(alignment: .trailing, spacing: 2) {
                         Text("Volume · Sets")
