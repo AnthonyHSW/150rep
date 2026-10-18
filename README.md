@@ -41,6 +41,17 @@ ALTER TABLE public.workout_photos
     VALIDATE CONSTRAINT workout_photos_session_id_fkey;
 ```
 
+### Live workout visibility
+
+Run [`active_workouts.sql`](./active_workouts.sql) in Supabase SQL Editor after
+[`workout_sync.sql`](./workout_sync.sql) to add the session profile snapshot
+fields and live heartbeat, and allow authenticated users to read active
+workouts, their exercise logs, and sets while the heartbeat is newer than ten
+minutes. The policies do not expose workout photos or permit watchers to write
+to another user's workout. The migration does not change the Swift client; a
+publisher must update `last_active_at` while a workout is open for it to appear
+in the live feed.
+
 ## HTTP API for the Swift app
 
 The Swift client calls this API over HTTPS; it must not connect directly to
