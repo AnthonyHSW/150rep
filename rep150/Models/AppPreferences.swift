@@ -19,6 +19,11 @@ enum WeightUnit: String, CaseIterable, Identifiable {
 
     var id: String { rawValue }
 
+    /// What an account that has never opened Settings sees. Spelled once here because four
+    /// views declare the same `@AppStorage`, and a default that differs between them would
+    /// show one screen's pounds next to another's kilograms.
+    static let `default` = WeightUnit.pounds
+
     /// Spelled out, for the settings picker.
     var name: String {
         switch self {

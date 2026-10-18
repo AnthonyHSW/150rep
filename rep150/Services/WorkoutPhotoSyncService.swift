@@ -48,7 +48,11 @@ struct WorkoutPhotoSyncService {
                 continue
             }
 
-            let path = "\(userId.uuidString)/\(session.id.uuidString)/\(photo.id.uuidString).jpg"
+            // Lowercased deliberately. The storage RLS policy compares the first path
+            // segment against `auth.uid()::text`, and Postgres renders a uuid in lowercase
+            // while Foundation's `uuidString` is uppercase — so an uppercase segment fails
+            // the policy and the upload comes back 403 rather than unauthenticated.
+            let path = "\(userId.uuidString.lowercased())/\(session.id.uuidString.lowercased())/\(photo.id.uuidString.lowercased()).jpg"
 
             // Uploading from the file URL streams it off disk instead of reading the whole
             // JPEG into memory, and avoids a second lossy re-encode of an already-compressed

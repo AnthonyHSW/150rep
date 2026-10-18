@@ -32,6 +32,8 @@ final class AuthService {
         let email: String
         /// The name Google supplied, when it supplied one.
         let displayName: String?
+        /// The picture Google supplied, when it supplied one.
+        let avatarURL: URL?
     }
 
     enum State: Equatable {
@@ -123,7 +125,8 @@ final class AuthService {
         state = .signedIn(
             Account(
                 email: email,
-                displayName: session.user.userMetadata["full_name"]?.stringValue
+                displayName: session.user.userMetadata["full_name"]?.stringValue,
+                avatarURL: Self.avatarURL(from: session.user.userMetadata)
             )
         )
         errorMessage = nil
@@ -150,6 +153,18 @@ final class AuthService {
         errorMessage = statusCode == 403
             ? AuthServiceError.accountNotPermitted.localizedDescription
             : nil
+    }
+
+    /// Google spells the profile picture `picture` in the OIDC claims, and Supabase also
+    /// copies it to `avatar_url`. Which one lands in the metadata depends on the provider
+    /// config, so read either rather than betting on one.
+    private static func avatarURL(from metadata: [String: AnyJSON]) -> URL? {
+        for key in ["avatar_url", "picture"] {
+            if let string = metadata[key]?.stringValue, let url = URL(string: string) {
+                return url
+            }
+        }
+        return nil
     }
 
     private static func isUserCancellation(_ error: Error) -> Bool {

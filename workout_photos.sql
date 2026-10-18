@@ -43,6 +43,12 @@ on conflict (id) do update
 -- Objects are uploaded as `{user_id}/{session_id}/{photo_id}.jpg`, so the first path segment
 -- identifies the owner. Without this policy the uploads are rejected: storage.objects has RLS
 -- on by default, and a public bucket grants read access only, never write.
+--
+-- The segment is compared case-insensitively. This is a text comparison, not a uuid one, so
+-- the two sides have to agree on spelling: `auth.uid()::text` is lowercase, while the hex a
+-- client prints may not be (Foundation's `UUID.uuidString` is uppercase). A case-sensitive
+-- comparison turns that mismatch into a 403 on upload, which reads as an auth problem and
+-- isn't one. Folding both sides keeps a build that spells it either way working.
 drop policy if exists "Users manage own workout photo files" on storage.objects;
 
 create policy "Users manage own workout photo files"

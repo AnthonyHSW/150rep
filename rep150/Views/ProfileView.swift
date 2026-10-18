@@ -11,9 +11,7 @@ struct ProfileView: View {
                 Spacer(minLength: 0)
 
                 VStack(spacing: 12) {
-                    Circle()
-                        .fill(AppColors.brandBlue.opacity(0.2))
-                        .frame(width: 60, height: 60)
+                    ProfileAvatarView(account: auth.account)
 
                     // The signed-in account, not a hardcoded one.
                     Text(auth.account?.displayName ?? "Signed in")
@@ -91,7 +89,7 @@ struct SettingsView: View {
 
     private let auth = AuthService.shared
 
-    @AppStorage(PreferenceKey.weightUnit) private var weightUnit = WeightUnit.kilograms
+    @AppStorage(PreferenceKey.weightUnit) private var weightUnit = WeightUnit.default
     @AppStorage(PreferenceKey.appearance) private var appearance = AppearanceSetting.system
 
     @State private var isConfirmingSignOut = false
