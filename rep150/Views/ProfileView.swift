@@ -22,6 +22,12 @@ struct ProfileView: View {
 
     @State private var isConfirmingSignOut = false
 
+#if DEBUG
+    /// Mirrors `LocationService.skipsLocationCheck`, which reads the same key straight out
+    /// of `UserDefaults` — `@AppStorage` here is only so the toggle redraws.
+    @AppStorage(PreferenceKey.skipLocationCheck) private var skipsLocationCheck = false
+#endif
+
     /// Re-read when the app comes back to the foreground, so a week that turned over while
     /// the app was backgrounded resets the count.
     @State private var now = Date()
@@ -70,6 +76,10 @@ struct ProfileView: View {
                 .background(AppColors.contentSurface)
                 .cornerRadius(20)
 
+#if DEBUG
+                debugCard
+#endif
+
                 Spacer(minLength: 0)
 
                 Button(role: .destructive) {
@@ -117,6 +127,32 @@ struct ProfileView: View {
             }
         }
     }
+
+#if DEBUG
+    /// Debug-only controls, on the page rather than behind the gear: it exists to be
+    /// switched on and off while working on crowd reports, and a release build never
+    /// compiles it at all.
+    private var debugCard: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Toggle(isOn: $skipsLocationCheck) {
+                Text("Skip Location Check")
+                    .font(.system(size: 16, weight: .semibold))
+            }
+            .tint(AppColors.brandBlue)
+
+            // Said plainly, because the reports are not pretend. They land in the same
+            // table, move the live average, and earn karma like anyone else's.
+            Text("Sends busyness reports as though you were at the Arc, skipping the location check. Debug builds only — the reports are real.")
+                .font(.caption)
+                .foregroundColor(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity)
+        .background(AppColors.contentSurface)
+        .cornerRadius(20)
+    }
+#endif
 }
 
 struct SettingsView: View {

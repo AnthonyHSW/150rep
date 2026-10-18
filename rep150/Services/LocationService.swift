@@ -74,6 +74,25 @@ final class LocationService: NSObject, CLLocationManagerDelegate {
         manager.desiredAccuracy = kCLLocationAccuracyNearestTenMeters
     }
 
+#if DEBUG
+    /// Debug builds only: report as though standing at the centre of the Arc, skipping the
+    /// device-side location check entirely.
+    ///
+    /// The backend runs the same check on what it receives, so skipping ours alone would
+    /// just move the refusal — which is why this substitutes a fix that satisfies the
+    /// server too, rather than sending the real one. The reports it produces are real
+    /// rows that count toward the live average and earn karma like any other, so it is
+    /// for working on the feature, not for using the app.
+    ///
+    /// Read from `UserDefaults` rather than taken as a parameter so the production call
+    /// path is identical with the toggle off, and `#if DEBUG` keeps the whole thing out of
+    /// a release build — where the key does nothing even if it is somehow set.
+    static var skipsLocationCheck: Bool {
+        get { UserDefaults.standard.bool(forKey: PreferenceKey.skipLocationCheck) }
+        set { UserDefaults.standard.set(newValue, forKey: PreferenceKey.skipLocationCheck) }
+    }
+#endif
+
     /// Current authorization, as the app should present it — `nil` while undecided.
     var isDenied: Bool {
         let status = manager.authorizationStatus
@@ -86,6 +105,13 @@ final class LocationService: NSObject, CLLocationManagerDelegate {
     /// Passing this is necessary but not sufficient: the backend repeats the check on the
     /// coordinates it receives, because this one runs on the reporter's own device.
     func locationAtArc() async throws -> CLLocation {
+#if DEBUG
+        // Before the permission check, not after it: the point of the toggle is to report
+        // from a simulator or a desk, where there may be no usable fix and no granted
+        // permission to get one.
+        if Self.skipsLocationCheck { return ArcGeofence.simulatedFixAtCentre() }
+#endif
+
         switch await resolvedAuthorization() {
         case .authorizedWhenInUse, .authorizedAlways:
             break

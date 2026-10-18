@@ -35,4 +35,25 @@ enum ArcGeofence {
     static func contains(_ location: CLLocation) -> Bool {
         distance(from: location) <= radius
     }
+
+#if DEBUG
+    /// A made-up fix at the centre of the complex, for `LocationService.skipsLocationCheck`.
+    ///
+    /// Stamped now and with a tight accuracy on purpose: the backend checks the age and the
+    /// error estimate of what it receives as well as the coordinates, so a fix that only
+    /// passed the fence would still be refused.
+    ///
+    /// Compiled out of release builds along with the toggle that reaches it. This is the
+    /// coordinate check being told what it wants to hear, which is a debugging tool and
+    /// nothing else — shipped, it would let any build report busyness from anywhere.
+    static func simulatedFixAtCentre() -> CLLocation {
+        CLLocation(
+            coordinate: center.coordinate,
+            altitude: 0,
+            horizontalAccuracy: 10,
+            verticalAccuracy: 10,
+            timestamp: Date()
+        )
+    }
+#endif
 }

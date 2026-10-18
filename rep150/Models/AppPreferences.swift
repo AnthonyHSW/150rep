@@ -4,6 +4,10 @@ import SwiftUI
 enum PreferenceKey {
     static let weightUnit = "weightUnit"
     static let appearance = "appearance"
+    /// Debug builds only — see `LocationService.skipsLocationCheck`. The key is spelled here
+    /// with the others rather than inside the `#if`, so the Profile toggle and the service
+    /// reading it can't drift apart.
+    static let skipLocationCheck = "debugSkipLocationCheck"
 }
 
 /// The unit weights are shown and entered in.
