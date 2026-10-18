@@ -43,20 +43,22 @@ def get_crowd_schedule_values(database: db.Database, day_of_week: int) -> List[f
     return database.get_crowd_schedule_values(day_of_week)
 
 
-def list_machines(database: db.Database) -> List[Tuple]:
-    """Get every machine with its latest status."""
-    return database.list_machines()
+def create_machine(
+    database: db.Database, name: str, location: Optional[str] = None
+) -> Tuple[int, str, Optional[str], datetime]:
+    """Add a machine to the shared inventory."""
+    return database.create_machine(name, location)
 
 
-def add_machine(
-    database: db.Database, name: str, location: Optional[str]
-) -> Optional[Tuple]:
-    """Add a machine, or None when the name is already taken."""
-    return database.add_machine(name, location)
+def get_machines(
+    database: db.Database,
+) -> List[Tuple[int, str, Optional[str], Optional[bool], Optional[datetime]]]:
+    """List the machine inventory and latest status reports."""
+    return database.get_machines()
 
 
-def set_machine_status(
-    database: db.Database, machine_id: int, is_in_use: bool, user_id: int
-) -> Optional[Tuple]:
-    """Update a machine's status, or None when the machine does not exist."""
-    return database.set_machine_status(machine_id, is_in_use, user_id)
+def set_machine_in_use(
+    database: db.Database, machine_id: int, user_id: int, is_in_use: bool
+) -> Optional[Tuple[int, bool, datetime]]:
+    """Set or replace the machine's latest in-use report."""
+    return database.set_machine_in_use(machine_id, user_id, is_in_use)

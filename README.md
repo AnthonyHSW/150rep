@@ -126,6 +126,78 @@ The response includes every date in the range, including days with no visits:
 The date range is limited to 366 days. `GET /health` is a public process-health
 check and does not verify database connectivity.
 
+### Machine inventory and availability
+
+After `api_migration.sql` has been run, run
+[`machine_status.sql`](./machine_status.sql) in the Supabase SQL editor. It
+creates:
+
+- `public.machines` for the gym's machine inventory (`id`, `name`, optional
+  `location`, and `created_at`).
+- `public.machine_status` for each machine's latest shared status (`machine_id`,
+  `is_in_use`, `updated_at`, and the local user who reported it).
+
+The API connects to PostgreSQL using `DATABASE_URL`; these tables are accessed
+through FastAPI, not directly through PostgREST. All three routes require a
+valid bearer token for a Supabase account ending exactly in `@uci.edu`.
+Any authenticated UCI account can add a machine or update its status. Status
+updates are shared, last-write-wins reports and remain in effect until someone
+updates them. Before the first report, `is_in_use` is `null` (unknown), not
+`false`.
+
+List the inventory and latest status:
+
+```http
+GET /v1/machines
+Authorization: Bearer <Supabase access token>
+```
+
+```json
+[
+  {
+    "id": 1,
+    "name": "Leg Press 1",
+    "location": "Weight room",
+    "is_in_use": true,
+    "updated_at": "2026-10-18T00:30:00+00:00"
+  },
+  {
+    "id": 2,
+    "name": "Cable Machine",
+    "location": null,
+    "is_in_use": null,
+    "updated_at": null
+  }
+]
+```
+
+Add a machine to the inventory:
+
+```http
+POST /v1/machines
+Authorization: Bearer <Supabase access token>
+Content-Type: application/json
+```
+
+```json
+{"name": "Leg Press 1", "location": "Weight room"}
+```
+
+Report whether a machine is in use (use the returned inventory `id`):
+
+```http
+PUT /v1/machines/1/status
+Authorization: Bearer <Supabase access token>
+Content-Type: application/json
+```
+
+```json
+{"is_in_use": true}
+```
+
+The response contains `machine_id`, the saved `is_in_use` value, and
+`updated_at`. A report for an unknown machine returns `404`.
+
 ### Crowd level
 
 Run the updated [`api_migration.sql`](./api_migration.sql) in Supabase SQL Editor

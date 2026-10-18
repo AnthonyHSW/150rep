@@ -101,11 +101,22 @@ class MachineStatusUpdate(BaseModel):
 class MachineResponse(BaseModel):
     id: int
     name: str
-    location: Optional[str] = None
+    location: Optional[str]
+    is_in_use: Optional[bool]
+    updated_at: Optional[datetime]
+
+
+class MachineCreatedResponse(BaseModel):
+    id: int
+    name: str
+    location: Optional[str]
+    created_at: datetime
+
+
+class MachineStatusResponse(BaseModel):
+    machine_id: int
     is_in_use: bool
-    # Null until somebody first reports on this machine, which is not the same as having
-    # been reported free.
-    status_updated_at: Optional[datetime] = None
+    updated_at: datetime
 
 
 class SupabaseIdentity(BaseModel):
@@ -386,6 +397,79 @@ def read_crowd_schedule(
             detail="Crowd schedule is not seeded with all 18 hourly values for this day",
         )
     return CrowdScheduleResponse(e=e, values=values)
+
+
+@app.get(
+    "/v1/machines",
+    response_model=List[MachineResponse],
+    dependencies=[Depends(get_authenticated_user_id)],
+)
+def read_machines(
+    database: db.Database = Depends(get_database),
+) -> List[MachineResponse]:
+    rows = query.get_machines(database)
+    return [
+        MachineResponse(
+            id=machine_id,
+            name=name,
+            location=location,
+            is_in_use=is_in_use,
+            updated_at=updated_at,
+        )
+        for machine_id, name, location, is_in_use, updated_at in rows
+    ]
+
+
+@app.post(
+    "/v1/machines",
+    response_model=MachineCreatedResponse,
+    status_code=201,
+    dependencies=[Depends(get_authenticated_user_id)],
+)
+def create_machine(
+    payload: MachineCreate,
+    database: db.Database = Depends(get_database),
+) -> MachineCreatedResponse:
+    name = payload.name.strip()
+    if not name:
+        raise HTTPException(status_code=422, detail="Machine name cannot be blank")
+    location = payload.location.strip() if payload.location else None
+    if not location:
+        location = None
+    machine_id, stored_name, stored_location, created_at = query.create_machine(
+        database, name, location
+    )
+    return MachineCreatedResponse(
+        id=machine_id,
+        name=stored_name,
+        location=stored_location,
+        created_at=created_at,
+    )
+
+
+@app.put(
+    "/v1/machines/{machine_id}/status",
+    response_model=MachineStatusResponse,
+)
+def update_machine_status(
+    machine_id: int,
+    payload: MachineStatusUpdate,
+    user_id: int = Depends(get_authenticated_user_id),
+    database: db.Database = Depends(get_database),
+) -> MachineStatusResponse:
+    if machine_id < 1:
+        raise HTTPException(status_code=404, detail="Machine not found")
+    status = query.set_machine_in_use(
+        database, machine_id, user_id, payload.is_in_use
+    )
+    if status is None:
+        raise HTTPException(status_code=404, detail="Machine not found")
+    stored_machine_id, is_in_use, updated_at = status
+    return MachineStatusResponse(
+        machine_id=stored_machine_id,
+        is_in_use=is_in_use,
+        updated_at=updated_at,
+    )
 
 
 @app.post(
