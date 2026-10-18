@@ -23,6 +23,16 @@ per-user row-level security for exact `@uci.edu` addresses, and connects existin
 photo metadata to sessions with a `NOT VALID` foreign key so legacy rows are not
 rejected.
 
+To store time-based exercises, run
+[`workout_cardio.sql`](./workout_cardio.sql) after `workout_sync.sql`. It adds
+`exercise_logs.is_cardio` (default `false`) and nullable
+`exercise_sets.duration_seconds` (nonnegative integer, in seconds). It also
+makes `weight` and `reps` nullable and removes their zero defaults, allowing
+cardio sets to store duration without placeholder weight/repetition values.
+Existing rows keep their current weight/reps values. The client must explicitly
+write `duration_seconds` and leave weight/reps null for time-based sets; this
+migration does not modify the Swift app or its sync payloads.
+
 These tables are accessed directly through Supabase PostgREST with the signed-in
 user's Supabase client; this migration does not add FastAPI routes or modify the
 Swift app. After existing workouts and photos are synced, check for orphaned photo

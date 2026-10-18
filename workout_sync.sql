@@ -29,7 +29,8 @@ CREATE TABLE IF NOT EXISTS public.exercise_logs (
     primary_muscle TEXT NOT NULL,
     image_name TEXT NOT NULL DEFAULT '',
     order_index INTEGER NOT NULL,
-    notes TEXT
+    notes TEXT,
+    is_cardio BOOLEAN NOT NULL DEFAULT false
 );
 
 CREATE TABLE IF NOT EXISTS public.exercise_sets (
@@ -40,10 +41,13 @@ CREATE TABLE IF NOT EXISTS public.exercise_sets (
         REFERENCES auth.users (id) ON DELETE CASCADE,
     set_number INTEGER NOT NULL,
     set_type TEXT NOT NULL CHECK (set_type IN ('W', 'N', 'D', 'F')),
-    weight DOUBLE PRECISION NOT NULL DEFAULT 0,
-    reps INTEGER NOT NULL DEFAULT 0,
+    weight DOUBLE PRECISION,
+    reps INTEGER,
+    duration_seconds INTEGER,
     is_completed BOOLEAN NOT NULL DEFAULT false,
-    completed_at TIMESTAMPTZ
+    completed_at TIMESTAMPTZ,
+    CONSTRAINT exercise_sets_duration_seconds_nonnegative
+        CHECK (duration_seconds IS NULL OR duration_seconds >= 0)
 );
 
 CREATE INDEX IF NOT EXISTS workout_sessions_user_start_idx

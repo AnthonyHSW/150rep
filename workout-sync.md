@@ -79,7 +79,8 @@ create table if not exists public.exercise_logs (
     primary_muscle text not null,
     image_name text not null default '',
     order_index integer not null,
-    notes text
+    notes text,
+    is_cardio boolean not null default false
 );
 
 create table if not exists public.exercise_sets (
@@ -90,10 +91,12 @@ create table if not exists public.exercise_sets (
         references auth.users (id) on delete cascade,
     set_number integer not null,
     set_type text not null check (set_type in ('W', 'N', 'D', 'F')),
-    weight double precision not null default 0,
-    reps integer not null default 0,
+    weight double precision,
+    reps integer,
+    duration_seconds integer,
     is_completed boolean not null default false,
-    completed_at timestamptz
+    completed_at timestamptz,
+    check (duration_seconds is null or duration_seconds >= 0)
 );
 
 create index if not exists workout_sessions_user_start_idx
@@ -108,6 +111,10 @@ create index if not exists exercise_sets_log_number_idx
 Both are stored as the raw strings the Swift enums already encode, so no translation layer is
 needed on either side. The `check` constraints are what stops a future rename on one side from
 silently writing garbage.
+
+`is_cardio` classifies the exercise log, while `duration_seconds` stores the time for an
+individual set. Cardio sets can leave `weight` and `reps` null. Run `workout_cardio.sql` after
+`workout_sync.sql` to apply these fields to an already-created database.
 
 ## Step 2 — Connect photos to their sessions
 
