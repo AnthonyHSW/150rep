@@ -2,10 +2,22 @@ import SwiftUI
 import Charts
 
 struct LiveView: View {
+    /// How long this device keeps showing your tap as the current answer. The backend
+    /// stops counting a report toward the live average after half an hour and the submit
+    /// upserts, so re-reporting replaces your row rather than adding one — this is purely
+    /// about not leaving a stale tap highlighted as though it still spoke for right now.
+    private static let reportLifetime: TimeInterval = 15 * 60
+
     @State private var snapshot = BusynessSnapshot.empty
     @State private var selectedReport: Int? = nil
+    /// When `selectedReport` was tapped, so it can be aged out. Held separately from the
+    /// selection because the view needs to expire it both on a timer and on foregrounding.
+    @State private var reportedAt: Date? = nil
+    @State private var expiryTask: Task<Void, Never>? = nil
     @State private var isSubmitting = false
     @State private var isRefreshing = false
+
+    @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
         NavigationStack {
@@ -54,11 +66,22 @@ struct LiveView: View {
         .task {
             await refreshSnapshot()
         }
+        .onChange(of: scenePhase) { _, phase in
+            // The expiry task can be starved while the app is suspended, so coming back to
+            // the foreground is the other moment the selection has to be re-checked.
+            if phase == .active { expireReportIfNeeded() }
+        }
+        .onDisappear {
+            expiryTask?.cancel()
+            expiryTask = nil
+        }
     }
 
     private func handleReportSubmit(_ level: Int) {
         guard !isSubmitting else { return }
         selectedReport = level
+        reportedAt = Date()
+        scheduleReportExpiry()
         isSubmitting = true
 
         Task {
@@ -68,7 +91,53 @@ struct LiveView: View {
                 await refreshSnapshot()
             } catch {
                 print("Failed to submit crowd report: \(error)")
+                // Nothing of the tap survives a failed submit: leaving it highlighted would
+                // claim a report the backend never took, and leaving `reportedAt` set would
+                // schedule an expiry for a selection that is already gone.
+                selectedReport = nil
+                reportedAt = nil
+                expiryTask?.cancel()
+                expiryTask = nil
             }
+        }
+    }
+
+    /// Arm a single timer to clear the selection once it ages out, replacing any timer left
+    /// over from an earlier tap so the newest report is the one that sets the deadline.
+    private func scheduleReportExpiry() {
+        expiryTask?.cancel()
+
+        guard let reportedAt else {
+            expiryTask = nil
+            return
+        }
+
+        let remaining = Self.reportLifetime - Date().timeIntervalSince(reportedAt)
+        guard remaining > 0 else {
+            expiryTask = nil
+            expireReportIfNeeded()
+            return
+        }
+
+        expiryTask = Task {
+            try? await Task.sleep(for: .seconds(remaining))
+            guard !Task.isCancelled else { return }
+            expireReportIfNeeded()
+        }
+    }
+
+    /// Drop the selection if it has outlived `reportLifetime`; otherwise leave it and make
+    /// sure a timer is still armed for whatever time it has left.
+    private func expireReportIfNeeded() {
+        guard let reportedAt else { return }
+
+        if Date().timeIntervalSince(reportedAt) >= Self.reportLifetime {
+            selectedReport = nil
+            self.reportedAt = nil
+            expiryTask?.cancel()
+            expiryTask = nil
+        } else if expiryTask == nil {
+            scheduleReportExpiry()
         }
     }
 
