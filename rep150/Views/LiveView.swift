@@ -1,5 +1,6 @@
 import SwiftUI
 import Charts
+import UIKit
 
 struct LiveView: View {
     /// How long this device keeps showing your tap as the current answer. The backend
@@ -16,35 +17,49 @@ struct LiveView: View {
     @State private var expiryTask: Task<Void, Never>? = nil
     @State private var isSubmitting = false
     @State private var isRefreshing = false
+    /// The last refused report, kept on screen until the next attempt. A refusal has to be
+    /// said out loud: the buttons go back to looking untouched either way, so without this
+    /// a blocked report is indistinguishable from one that quietly worked.
+    @State private var reportFailure: CrowdReportFailure? = nil
 
     @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
         NavigationStack {
-            VStack(spacing: 20) {
-                Spacer(minLength: 0)
+            // Scrolls rather than filling the screen: the leaderboard pages as it is
+            // reached, so this page is now taller than one screenful by design. The
+            // Spacers that used to center the meter are gone with it — they would push
+            // the leaderboard off the bottom of the content, where nothing would ever
+            // bring it into view.
+            ScrollView {
+                VStack(spacing: 20) {
+                    // Live Busyness Meter
+                    BusynessMeterSection(
+                        snapshot: snapshot,
+                        isRefreshing: isRefreshing,
+                        onRefresh: handleForceRefresh
+                    )
 
-                // Live Busyness Meter
-                BusynessMeterSection(
-                    snapshot: snapshot,
-                    isRefreshing: isRefreshing,
-                    onRefresh: handleForceRefresh
-                )
+                    // Best Time Today
+                    DailyTrafficChartSection(snapshot: snapshot)
 
-                // Best Time Today
-                DailyTrafficChartSection(snapshot: snapshot)
+                    // Quick Crowd Report
+                    CrowdReportSection(
+                        selectedReport: $selectedReport,
+                        isSubmitting: isSubmitting,
+                        failure: reportFailure,
+                        onSubmit: handleReportSubmit
+                    )
 
-                // Quick Crowd Report
-                CrowdReportSection(
-                    selectedReport: $selectedReport,
-                    onSubmit: handleReportSubmit
-                )
-
-                Spacer(minLength: 0)
+                    // Karma Leaderboard
+                    LeaderboardSection()
+                }
+                .padding(.horizontal, 16)
+                .padding(.top, 8)
+                // Clears the floating tab bar, so the last row of the leaderboard can be
+                // scrolled out from under it and actually read.
+                .padding(.bottom, 24)
             }
-            .padding(.horizontal, 16)
-            .padding(.top, 8)
-            .frame(maxHeight: .infinity)
             .background(AppColors.pageBackground)
             .navigationTitle("Arc Now")
             .navigationBarTitleDisplayMode(.inline)
@@ -52,14 +67,6 @@ struct LiveView: View {
                 ToolbarItem(placement: .navigationBarLeading) {
                     LogoView()
                         .frame(width: 70, height: 28)
-                }
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    Menu {
-                        Button("View Options", action: {})
-                    } label: {
-                        Image(systemName: "ellipsis.circle")
-                            .font(.headline)
-                    }
                 }
             }
         }
@@ -79,15 +86,24 @@ struct LiveView: View {
 
     private func handleReportSubmit(_ level: Int) {
         guard !isSubmitting else { return }
-        selectedReport = level
-        reportedAt = Date()
-        scheduleReportExpiry()
         isSubmitting = true
+        reportFailure = nil
 
         Task {
             defer { isSubmitting = false }
             do {
-                try await BusynessService.submitReport(level: level)
+                // Prove we are at the Arc before saying anything about how busy it is. The
+                // device check is only the fast half of this — it runs first so a report
+                // from across campus is refused with an explanation instead of a round
+                // trip — and the backend repeats it on the coordinates it receives.
+                let location = try await LocationService.shared.locationAtArc()
+                try await BusynessService.submitReport(level: level, from: location)
+
+                // Nothing of the tap shows until both halves have gone through, so a lit
+                // button always stands for a report the backend actually took.
+                selectedReport = level
+                reportedAt = Date()
+                scheduleReportExpiry()
                 await refreshSnapshot()
             } catch {
                 print("Failed to submit crowd report: \(error)")
@@ -98,6 +114,7 @@ struct LiveView: View {
                 reportedAt = nil
                 expiryTask?.cancel()
                 expiryTask = nil
+                reportFailure = CrowdReportFailure(error)
             }
         }
     }
@@ -172,6 +189,25 @@ struct BusynessMeterSection: View {
 
     private var hasData: Bool { snapshot.hasData }
 
+    /// How often the "Checked …" label re-renders. A relative time is only true for the
+    /// instant it was formatted, so the label has to be driven by a clock rather than
+    /// computed once — left to redraw on its own it sat at "Checked 0 seconds ago" until
+    /// some unrelated state change happened to rebuild the view.
+    ///
+    /// Every second, not every quarter-minute: anything coarser spends the first minute on
+    /// one unchanging string, which is indistinguishable from the stuck label this replaced.
+    /// It's one short caption redrawn while this screen is on top — the seconds are the whole
+    /// point of showing the age at all.
+    private static let updatedTick: TimeInterval = 1
+
+    /// Abbreviated so it reads "5s ago" → "1m ago" → "2h ago": one compact style across every
+    /// scale, and it moves within a second of a fetch instead of sitting on a bucket label.
+    private static let relativeFormatter: RelativeDateTimeFormatter = {
+        let formatter = RelativeDateTimeFormatter()
+        formatter.unitsStyle = .abbreviated
+        return formatter
+    }()
+
     /// `lastUpdated` is when this device last fetched, not when anyone last reported — the
     /// endpoint returns no timestamp — so this says "Checked", not "Updated".
     ///
@@ -179,12 +215,12 @@ struct BusynessMeterSection: View {
     /// submit upserts, so each person holds exactly one standing report however many
     /// times they tap — which is what keeps one keen reporter from swinging the
     /// average. Calling these "reports" read as a bug every time someone resubmitted.
-    private var updatedText: String {
+    private func updatedText(asOf now: Date) -> String {
         guard let lastUpdated = snapshot.lastUpdated else { return "Nobody reporting yet" }
-        let relative = RelativeDateTimeFormatter().localizedString(for: lastUpdated, relativeTo: Date())
 
         switch snapshot.source {
         case .live(let count):
+            let relative = Self.relativeFormatter.localizedString(for: lastUpdated, relativeTo: now)
             return "Checked \(relative) · \(count) \(count == 1 ? "person" : "people") reporting"
         case .typical:
             return "Typical for this hour · nobody reporting yet"
@@ -234,10 +270,12 @@ struct BusynessMeterSection: View {
             }
             .animation(.easeInOut(duration: 0.25), value: hasData)
 
-            Text(updatedText)
-                .font(.caption)
-                .foregroundColor(.secondary)
-                .frame(maxWidth: .infinity, alignment: .center)
+            TimelineView(.periodic(from: snapshot.lastUpdated ?? .now, by: Self.updatedTick)) { context in
+                Text(updatedText(asOf: context.date))
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .center)
+            }
         }
         .frame(maxWidth: .infinity)
     }
@@ -560,9 +598,33 @@ struct DailyTrafficChartSection: View {
 }
 
 // MARK: - Crowd Report Section
+/// A report the app or the backend refused, reduced to what the section has to show: the
+/// sentence to put on screen, and whether Settings is where it gets fixed.
+struct CrowdReportFailure {
+    let message: String
+    let isPermissionProblem: Bool
+
+    init(_ error: Error) {
+        if let gateError = error as? LocationGateError {
+            message = gateError.localizedDescription
+            isPermissionProblem = gateError.isPermissionProblem
+        } else {
+            // Anything else is a network or backend fault, and naming it would only put
+            // a status code in front of someone who wants to tap a button again.
+            message = "Couldn't send your report. Try again in a moment."
+            isPermissionProblem = false
+        }
+    }
+}
+
 struct CrowdReportSection: View {
     @Binding var selectedReport: Int?
+    let isSubmitting: Bool
+    /// The last refusal, or `nil` when the last attempt went through.
+    let failure: CrowdReportFailure?
     let onSubmit: (Int) -> Void
+
+    @Environment(\.openURL) private var openURL
 
     let reports = [
         (level: 2, label: "Quiet"),
@@ -573,9 +635,19 @@ struct CrowdReportSection: View {
 
     var body: some View {
         VStack(alignment: .center, spacing: 12) {
-            Text("Here now? How busy is it?")
-                .font(.system(size: 14, weight: .semibold))
-                .foregroundColor(.secondary)
+            // The location check is the reason this asks "here now?" and means it, so say
+            // up front that a report is checked rather than letting the first refusal be
+            // where someone finds out.
+            HStack(spacing: 6) {
+                Text("Here now? How busy is it?")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundColor(.secondary)
+
+                if isSubmitting {
+                    ProgressView()
+                        .controlSize(.mini)
+                }
+            }
 
             HStack(spacing: 8) {
                 ForEach(reports, id: \.label) { report in
@@ -609,9 +681,31 @@ struct CrowdReportSection: View {
                         .cornerRadius(10)
                         .foregroundColor(.primary)
                     }
+                    .disabled(isSubmitting)
                 }
             }
+            .opacity(isSubmitting ? 0.5 : 1.0)
+
+            if let failure {
+                VStack(spacing: 6) {
+                    Text(failure.message)
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                        .multilineTextAlignment(.center)
+                        .fixedSize(horizontal: false, vertical: true)
+
+                    // Only for the refusals a setting can actually clear — sending someone
+                    // to Settings to fix standing in the wrong place would be a dead end.
+                    if failure.isPermissionProblem,
+                       let settingsURL = URL(string: UIApplication.openSettingsURLString) {
+                        Button("Open Settings") { openURL(settingsURL) }
+                            .font(.caption.weight(.semibold))
+                    }
+                }
+                .transition(.opacity)
+            }
         }
+        .animation(.easeInOut(duration: 0.2), value: failure?.message)
         .padding(.bottom, 20)
     }
 }
