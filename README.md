@@ -264,14 +264,35 @@ Content-Type: application/json
 ```
 
 ```json
-{"level": 4}
+{
+  "level": 4,
+  "latitude": 33.6487,
+  "longitude": -117.8276,
+  "accuracy_m": 12.5,
+  "location_timestamp": "2026-10-18T03:05:00Z"
+}
 ```
+
+The API accepts a report only within 300 meters of the ARC center
+(`33.6487, -117.8276` by default), with reported accuracy of at most 150 meters
+and a timezone-aware location timestamp no more than 120 seconds old. Set
+`ARC_LATITUDE` and `ARC_LONGITUDE` in the API environment to override the
+center. Rejected locations return HTTP `422` (including `outside_geofence`,
+`location_accuracy_too_low`, and `location_fix_expired`) without updating the
+report or awarding karma. No new database table is needed: coordinates are
+validated by the API and are not stored.
+
+These required request fields change the API contract; existing app builds
+that send only `level` will receive HTTP `422` until their client is updated.
+No Swift client changes are included here. Device-reported coordinates can be
+spoofed, so this checks reported proximity but cannot prove that a person is
+physically inside the ARC.
 
 Levels must be integers from 1 through 10. Each user has one current report;
 submitting again updates that user's level instead of adding another vote. Each
-submission awards one karma point at most once per 30-minute window; further
-submissions still update the current crowd report but do not add more points in
-that window.
+accepted submission awards one karma point at most once per 30-minute window;
+further submissions still update the current crowd report but do not add more
+points in that window.
 
 Before using karma, run [`karma_migration.sql`](./karma_migration.sql) in the
 Supabase SQL editor after `api_migration.sql`. It adds the all-time karma counter,

@@ -1,0 +1,19 @@
+Swift side
+
+- rep150/Services/ArcGeofence.swift (new) — the fence constants: ARC center (33.6487, -117.8276), 300 m radius, 150 m accuracy ceiling, 120 s max fix age. Deliberately duplicates the backend's numbers, with a comment saying so.
+- rep150/Services/LocationService.swift (new) — one-shot CoreLocation lookup (locationAtArc()): prompts for when-in-use permission, gets a fix, rejects it if invalid/too rough/stale (one retry past requestLocation()'s cached answer), then geofences it. Failures come back as LocationGateError with user-facing wording — no continuous tracking anywhere.
+- rep150/Models/CrowdReport.swift — CrowdReportInsert now carries latitude, longitude, accuracy_m.
+- rep150/Services/BusynessService.swift — submitReport(level:from:) sends the coordinates; a 422 containing outside_geofence is translated back into LocationGateError.outsideGeofence.
+- rep150/Views/LiveView.swift — the tap now locates first, submits second, and only lights the button after both succeed (previously it lit optimistically). Refusals show a caption under the buttons, plus an "Open Settings" button only for permission problems.
+- rep150/Info.plist — NSLocationWhenInUseUsageDescription.
+
+Backend instructions: 150repMDs/crowd-report-geofence.md — env vars, the new request fields, a dependency-free haversine, and where to put the check in submit_crowd_level.
+
+Two things in that doc worth reading rather than skimming:
+
+1. The refusal must be 422, not 403. BusynessService.validate routes every 401/403 to AuthService.handleRejection, which signs the user out — that's how the UCI domain rule reaches the app. A 403 geofence refusal would log people out of the app for reporting from home. The body needs the string outside_geofence; that's what the client matches on.
+2. Required fields break older app builds (they'd 422 on every report), so backend and app build should land together — the doc notes the optional-then-required path if you need to stage it.
+
+I didn't need the location data after all — I used the published ARC coordinates as you chose, overridable via ARC_LATITUDE/ARC_LONGITUDE on the backend. If you have surveyed coordinates for the building, change them in ArcGeofence.swift and the env vars together.
+
+Also flagged in the doc: this proves the device reports a position at the ARC. A spoofed location still passes, since GPS is self-reported — the cheap hardening later is cross-checking a report against the reporter's own presence/active-workout row rather than trying to harden coordinates.
