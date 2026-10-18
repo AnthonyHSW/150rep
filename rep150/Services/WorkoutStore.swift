@@ -86,7 +86,20 @@ struct WorkoutStore {
         // rule reaches them. Clear the files first or discarding a workout leaks them forever.
         for photo in session.photos {
             WorkoutPhotoFileManager.shared.deleteImage(filename: photo.filename)
+            // The remote mirror of the same problem: the row goes with the session, but the
+            // Storage object is outside the foreign keys, so each uploaded file has to be
+            // named individually or it is stranded in the bucket.
+            recordDeletion(
+                of: photo.id,
+                in: .workoutPhotos,
+                storagePath: photo.storagePath,
+                ifSynced: photo.uploadedAt != nil
+            )
         }
+
+        // Only the session itself is recorded — its exercises, sets, and photo rows all
+        // cascade from it server-side.
+        recordDeletion(of: session.id, in: .workoutSessions, ifSynced: !session.needsSync)
 
         // Deliberately no `status = .discarded` write first — the object is being deleted,
         // so that write persists nothing and only muddies what the status means.
@@ -141,6 +154,8 @@ struct WorkoutStore {
     }
 
     func removeExercise(_ exerciseLog: ExerciseLog, from session: WorkoutSession) throws {
+        // Its sets cascade from the log, so they need no tombstones of their own.
+        recordDeletion(of: exerciseLog.id, in: .exerciseLogs, ifSynced: !session.needsSync)
         session.exercises.removeAll { $0.id == exerciseLog.id }
         modelContext.delete(exerciseLog)
         // Removal leaves a hole in the order (0, 2, 3); close it so stored indices keep
@@ -161,6 +176,11 @@ struct WorkoutStore {
     }
 
     func removeSet(_ set: ExerciseSet, from exerciseLog: ExerciseLog) throws {
+        recordDeletion(
+            of: set.id,
+            in: .exerciseSets,
+            ifSynced: exerciseLog.workoutSession.map { !$0.needsSync } ?? false
+        )
         exerciseLog.sets.removeAll { $0.id == set.id }
         modelContext.delete(set)
         renumberSets(in: exerciseLog)
@@ -199,6 +219,12 @@ struct WorkoutStore {
 
     func removePhoto(_ photo: WorkoutPhoto, from session: WorkoutSession) throws {
         WorkoutPhotoFileManager.shared.deleteImage(filename: photo.filename)
+        recordDeletion(
+            of: photo.id,
+            in: .workoutPhotos,
+            storagePath: photo.storagePath,
+            ifSynced: photo.uploadedAt != nil
+        )
         session.photos.removeAll { $0.id == photo.id }
         modelContext.delete(photo)
         normalizePhotoOrder(in: session)
@@ -219,6 +245,65 @@ struct WorkoutStore {
         }
     }
 
+    // MARK: - Sync support
+
+    /// Sessions the server has never seen, oldest first.
+    ///
+    /// Active sessions are excluded: one still in progress changes on every tap, and pushing
+    /// each edit would spend requests on a workout that isn't finished being written.
+    func sessionsNeedingSync() throws -> [WorkoutSession] {
+        let activeRaw = SessionStatus.active.rawValue
+        let descriptor = FetchDescriptor<WorkoutSession>(
+            predicate: #Predicate { $0.syncedAt == nil && $0.statusRaw != activeRaw },
+            sortBy: [SortDescriptor(\.startTime)]
+        )
+
+        do {
+            return try modelContext.fetch(descriptor)
+        } catch {
+            throw StoreError.fetchFailed(error)
+        }
+    }
+
+    /// Deletions waiting to reach the server, in the order they were made.
+    func pendingDeletions() throws -> [PendingDeletion] {
+        let descriptor = FetchDescriptor<PendingDeletion>(
+            sortBy: [SortDescriptor(\.requestedAt)]
+        )
+
+        do {
+            return try modelContext.fetch(descriptor)
+        } catch {
+            throw StoreError.fetchFailed(error)
+        }
+    }
+
+    /// Drops a tombstone once its deletion has landed server-side.
+    func clearDeletion(_ deletion: PendingDeletion) throws {
+        modelContext.delete(deletion)
+        try save()
+    }
+
+    func markSynced(_ session: WorkoutSession) throws {
+        session.syncedAt = Date()
+        try save()
+    }
+
+    /// Notes that `id` needs deleting server-side — but only if the server ever had it.
+    /// A row that was never uploaded needs no delete request, and enqueuing one would mean
+    /// every offline-only workout left a pointless round trip behind it.
+    private func recordDeletion(
+        of id: UUID,
+        in table: RemoteTable,
+        storagePath: String? = nil,
+        ifSynced wasSynced: Bool
+    ) {
+        guard wasSynced else { return }
+        modelContext.insert(
+            PendingDeletion(id: id, table: table, storagePath: storagePath)
+        )
+    }
+
     // MARK: - Persistence
 
     func save() throws {
@@ -233,11 +318,20 @@ struct WorkoutStore {
     // MARK: - Cleanup
 
     private func pruneIncompleteWork(in session: WorkoutSession) {
+        // Normally a no-op for sync: this runs inside `finish`, before a session has ever
+        // been uploaded, so there is nothing on the server to delete. Guarded all the same,
+        // because a session that is finished twice would otherwise drop rows server-side
+        // with nothing left to say they went.
+        let wasSynced = !session.needsSync
+
         for exerciseLog in session.exercises {
             let incomplete = exerciseLog.sets.filter { !$0.isCompleted }
             guard !incomplete.isEmpty else { continue }
             exerciseLog.sets.removeAll { !$0.isCompleted }
-            incomplete.forEach(modelContext.delete)
+            for set in incomplete {
+                recordDeletion(of: set.id, in: .exerciseSets, ifSynced: wasSynced)
+                modelContext.delete(set)
+            }
             renumberSets(in: exerciseLog)
         }
 
@@ -245,7 +339,10 @@ struct WorkoutStore {
         let emptyLogs = session.exercises.filter { $0.sets.isEmpty }
         guard !emptyLogs.isEmpty else { return }
         session.exercises.removeAll { $0.sets.isEmpty }
-        emptyLogs.forEach(modelContext.delete)
+        for exerciseLog in emptyLogs {
+            recordDeletion(of: exerciseLog.id, in: .exerciseLogs, ifSynced: wasSynced)
+            modelContext.delete(exerciseLog)
+        }
     }
 
     /// Closes gaps in set numbering so a stored exercise reads 1, 2, 3 rather than 1, 3, 4.

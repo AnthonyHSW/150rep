@@ -26,7 +26,13 @@ struct rep150App: App {
                 .animation(.easeInOut(duration: 0.2), value: auth.state)
         }
         .modelContainer(
-            for: [WorkoutSession.self, ExerciseLog.self, ExerciseSet.self, WorkoutPhoto.self]
+            for: [
+                WorkoutSession.self,
+                ExerciseLog.self,
+                ExerciseSet.self,
+                WorkoutPhoto.self,
+                PendingDeletion.self,
+            ]
         )
     }
 }

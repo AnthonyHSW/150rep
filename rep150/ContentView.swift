@@ -6,8 +6,11 @@
 //
 
 import SwiftUI
+import SwiftData
 
 struct ContentView: View {
+    @Environment(\.modelContext) private var modelContext
+
     var body: some View {
         TabView {
             LiveView()
@@ -31,6 +34,19 @@ struct ContentView: View {
                 }
         }
         .background(AppColors.pageBackground)
+        .task {
+            // Runs behind the auth gate, so there is a signed-in user by now. Everything
+            // finished while offline is outstanding at this point, as is every workout
+            // recorded before syncing existed — so this is the backfill too, with no
+            // one-time path to maintain.
+            do {
+                try await WorkoutSyncService.syncPending(
+                    store: WorkoutStore(modelContext: modelContext)
+                )
+            } catch {
+                print("Workout sync deferred: \(error)")
+            }
+        }
     }
 }
 
