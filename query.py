@@ -28,8 +28,8 @@ def get_attendance_calendar(
 
 def submit_crowd_level(
     database: db.Database, user_id: int, level: int
-) -> datetime:
-    """Create or update the user's current crowd-level report."""
+) -> Tuple[datetime, int, bool]:
+    """Submit a current report and return the user's karma outcome."""
     return database.submit_crowd_level(user_id, level)
 
 
@@ -41,6 +41,13 @@ def get_crowd_level(database: db.Database) -> Tuple[Optional[float], int]:
 def get_crowd_schedule_values(database: db.Database, day_of_week: int) -> List[float]:
     """Get ordered schedule values scaled to the 0-10 range."""
     return database.get_crowd_schedule_values(day_of_week)
+
+
+def get_karma_leaderboard(
+    database: db.Database, limit: int = 50
+) -> List[Tuple[int, str, Optional[str], int]]:
+    """Return ranked display names, avatar URLs, and all-time karma totals."""
+    return database.get_karma_leaderboard(limit)
 
 
 def create_machine(

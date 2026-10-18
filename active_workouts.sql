@@ -18,6 +18,8 @@
 -- light up sessions nobody is actually doing. This column means one thing: the device had
 -- this workout open on screen at that moment.
 
+begin;
+
 -- =============================================================================
 -- 1. Columns
 -- =============================================================================
@@ -93,6 +95,15 @@ as $$
     );
 $$;
 
+-- Supabase grants function execution to PUBLIC by default. These helpers are used by
+-- authenticated RLS policies, so limit direct invocation to that role.
+revoke all on function public.live_workout_cutoff() from public, anon;
+revoke all on function public.is_live_workout(uuid) from public, anon;
+revoke all on function public.is_live_exercise_log(uuid) from public, anon;
+grant execute on function public.live_workout_cutoff() to authenticated;
+grant execute on function public.is_live_workout(uuid) to authenticated;
+grant execute on function public.is_live_exercise_log(uuid) to authenticated;
+
 -- =============================================================================
 -- 3. Read policies for watchers
 -- =============================================================================
@@ -135,3 +146,5 @@ create policy "Anyone can watch live workout sets"
 -- The new columns are invisible to the API until it reloads, and a select naming them comes
 -- back as PGRST204 in the meantime.
 notify pgrst, 'reload schema';
+
+commit;

@@ -23,6 +23,16 @@ per-user row-level security for exact `@uci.edu` addresses, and connects existin
 photo metadata to sessions with a `NOT VALID` foreign key so legacy rows are not
 rejected.
 
+To store time-based exercises, run
+[`workout_cardio.sql`](./workout_cardio.sql) after `workout_sync.sql`. It adds
+`exercise_logs.is_cardio` (default `false`) and nullable
+`exercise_sets.duration_seconds` (nonnegative integer, in seconds). It also
+makes `weight` and `reps` nullable and removes their zero defaults, allowing
+cardio sets to store duration without placeholder weight/repetition values.
+Existing rows keep their current weight/reps values. The client must explicitly
+write `duration_seconds` and leave weight/reps null for time-based sets; this
+migration does not modify the Swift app or its sync payloads.
+
 These tables are accessed directly through Supabase PostgREST with the signed-in
 user's Supabase client; this migration does not add FastAPI routes or modify the
 Swift app. After existing workouts and photos are synced, check for orphaned photo
@@ -40,6 +50,17 @@ WHERE NOT EXISTS (
 ALTER TABLE public.workout_photos
     VALIDATE CONSTRAINT workout_photos_session_id_fkey;
 ```
+
+### Live workout visibility
+
+Run [`active_workouts.sql`](./active_workouts.sql) in Supabase SQL Editor after
+[`workout_sync.sql`](./workout_sync.sql) to add the session profile snapshot
+fields and live heartbeat, and allow authenticated users to read active
+workouts, their exercise logs, and sets while the heartbeat is newer than ten
+minutes. The policies do not expose workout photos or permit watchers to write
+to another user's workout. The migration does not change the Swift client; a
+publisher must update `last_active_at` while a workout is open for it to appear
+in the live feed.
 
 ## HTTP API for the Swift app
 
@@ -243,11 +264,67 @@ Content-Type: application/json
 ```
 
 ```json
-{"level": 4}
+{
+  "level": 4,
+  "latitude": 33.6487,
+  "longitude": -117.8276,
+  "accuracy_m": 12.5,
+  "location_timestamp": "2026-10-18T03:05:00Z"
+}
 ```
 
+The API accepts a report only within 300 meters of the ARC center
+(`33.6487, -117.8276` by default), with reported accuracy of at most 150 meters
+and a timezone-aware location timestamp no more than 120 seconds old. Set
+`ARC_LATITUDE` and `ARC_LONGITUDE` in the API environment to override the
+center. Rejected locations return HTTP `422` (including `outside_geofence`,
+`location_accuracy_too_low`, and `location_fix_expired`) without updating the
+report or awarding karma. No new database table is needed: coordinates are
+validated by the API and are not stored.
+
+These required request fields change the API contract; existing app builds
+that send only `level` will receive HTTP `422` until their client is updated.
+No Swift client changes are included here. Device-reported coordinates can be
+spoofed, so this checks reported proximity but cannot prove that a person is
+physically inside the ARC.
+
 Levels must be integers from 1 through 10. Each user has one current report;
-submitting again updates that user's level instead of adding another vote.
+submitting again updates that user's level instead of adding another vote. Each
+accepted submission awards one karma point at most once per 30-minute window;
+further submissions still update the current crowd report but do not add more
+points in that window.
+
+Before using karma, run [`karma_migration.sql`](./karma_migration.sql) in the
+Supabase SQL editor after `api_migration.sql`. It adds the all-time karma counter,
+the cooldown timestamp, and an optional avatar URL to `public.users`. The API
+syncs the user's display name and HTTPS avatar URL from their verified Supabase
+Auth profile metadata. Emails are not returned by the leaderboard.
+
+Get the all-time leaderboard (default 50 entries, maximum 100):
+
+```http
+GET /v1/leaderboard?limit=50
+Authorization: Bearer <Supabase access token>
+```
+
+```json
+[
+  {"rank": 1, "name": "Alex Example", "photo_url": "https://...", "karma": 12},
+  {"rank": 2, "name": "UCI Student", "photo_url": null, "karma": 8}
+]
+```
+
+The crowd-report response now also includes the submitter's total karma and
+whether this submission earned a point:
+
+```json
+{
+  "level": 6,
+  "updated_at": "2026-10-18T02:30:00+00:00",
+  "karma_points": 13,
+  "karma_awarded": true
+}
+```
 
 Get the average of the 10 most recently updated reports from the last 30
 minutes:

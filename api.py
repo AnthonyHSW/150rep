@@ -1,7 +1,8 @@
 """HTTP API for authenticated workout attendance."""
 
+import math
 import os
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 from typing import Generator, List, Optional
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -72,6 +73,10 @@ class AttendanceCalendarResponse(BaseModel):
 
 class CrowdLevelCreate(BaseModel):
     level: int = Field(strict=True, ge=1, le=10)
+    latitude: float = Field(ge=-90, le=90)
+    longitude: float = Field(ge=-180, le=180)
+    accuracy_m: float = Field(gt=0)
+    location_timestamp: datetime
 
 
 class CrowdLevelResponse(BaseModel):
@@ -82,6 +87,15 @@ class CrowdLevelResponse(BaseModel):
 class CrowdLevelSubmissionResponse(BaseModel):
     level: int
     updated_at: datetime
+    karma_points: int
+    karma_awarded: bool
+
+
+class LeaderboardEntry(BaseModel):
+    rank: int
+    name: str
+    photo_url: Optional[str]
+    karma: int
 
 
 class CrowdScheduleResponse(BaseModel):
@@ -122,6 +136,90 @@ class MachineStatusResponse(BaseModel):
 class SupabaseIdentity(BaseModel):
     id: str
     email: Optional[str] = None
+    display_name: Optional[str] = None
+    avatar_url: Optional[str] = None
+
+
+ARC_DEFAULT_LATITUDE = 33.6487
+ARC_DEFAULT_LONGITUDE = -117.8276
+ARC_GEOFENCE_RADIUS_METERS = 300.0
+ARC_MAX_LOCATION_ACCURACY_METERS = 150.0
+ARC_MAX_LOCATION_AGE_SECONDS = 120.0
+EARTH_RADIUS_METERS = 6_371_000.0
+
+
+def arc_coordinates() -> tuple[float, float]:
+    try:
+        latitude = float(os.environ.get("ARC_LATITUDE", ARC_DEFAULT_LATITUDE))
+        longitude = float(os.environ.get("ARC_LONGITUDE", ARC_DEFAULT_LONGITUDE))
+    except ValueError as error:
+        raise HTTPException(
+            status_code=503,
+            detail="ARC_LATITUDE and ARC_LONGITUDE must be valid coordinates",
+        ) from error
+    if (
+        not math.isfinite(latitude)
+        or not math.isfinite(longitude)
+        or not -90 <= latitude <= 90
+        or not -180 <= longitude <= 180
+    ):
+        raise HTTPException(
+            status_code=503,
+            detail="ARC_LATITUDE and ARC_LONGITUDE are outside valid coordinate ranges",
+        )
+    return latitude, longitude
+
+
+def distance_meters(
+    latitude_a: float,
+    longitude_a: float,
+    latitude_b: float,
+    longitude_b: float,
+) -> float:
+    """Return the great-circle distance between two coordinates."""
+    lat_a, lat_b = math.radians(latitude_a), math.radians(latitude_b)
+    delta_lat = lat_b - lat_a
+    delta_lon = math.radians(longitude_b - longitude_a)
+    haversine = (
+        math.sin(delta_lat / 2) ** 2
+        + math.cos(lat_a) * math.cos(lat_b) * math.sin(delta_lon / 2) ** 2
+    )
+    central_angle = 2 * math.asin(math.sqrt(min(1.0, haversine)))
+    return EARTH_RADIUS_METERS * central_angle
+
+
+def require_arc_location(payload: CrowdLevelCreate) -> None:
+    if not all(
+        math.isfinite(value)
+        for value in (payload.latitude, payload.longitude, payload.accuracy_m)
+    ):
+        raise HTTPException(status_code=422, detail="invalid_location")
+    if payload.accuracy_m > ARC_MAX_LOCATION_ACCURACY_METERS:
+        raise HTTPException(status_code=422, detail="location_accuracy_too_low")
+
+    location_timestamp = payload.location_timestamp
+    if location_timestamp.tzinfo is None or location_timestamp.utcoffset() is None:
+        raise HTTPException(
+            status_code=422,
+            detail="location_timestamp_must_include_timezone",
+        )
+    age_seconds = (
+        datetime.now(timezone.utc) - location_timestamp.astimezone(timezone.utc)
+    ).total_seconds()
+    if age_seconds < 0 or age_seconds > ARC_MAX_LOCATION_AGE_SECONDS:
+        raise HTTPException(status_code=422, detail="location_fix_expired")
+
+    arc_latitude, arc_longitude = arc_coordinates()
+    if (
+        distance_meters(
+            payload.latitude,
+            payload.longitude,
+            arc_latitude,
+            arc_longitude,
+        )
+        > ARC_GEOFENCE_RADIUS_METERS
+    ):
+        raise HTTPException(status_code=422, detail="outside_geofence")
 
 
 def require_uci_email(email: str) -> str:
@@ -308,8 +406,30 @@ async def verify_supabase_access_token(
             status_code=502, detail="Supabase Auth returned an invalid user response"
         )
     email = auth_user.get("email")
+    metadata = auth_user.get("user_metadata")
+    if not isinstance(metadata, dict):
+        metadata = {}
 
-    return SupabaseIdentity(id=auth_user_id, email=email if isinstance(email, str) else None)
+    display_name_value = metadata.get("full_name") or metadata.get("name")
+    display_name = (
+        display_name_value.strip()[:100]
+        if isinstance(display_name_value, str) and display_name_value.strip()
+        else None
+    )
+    avatar_value = metadata.get("avatar_url") or metadata.get("picture")
+    avatar_url = (
+        avatar_value.strip()[:2048]
+        if isinstance(avatar_value, str)
+        and avatar_value.strip().casefold().startswith("https://")
+        else None
+    )
+
+    return SupabaseIdentity(
+        id=auth_user_id,
+        email=email if isinstance(email, str) else None,
+        display_name=display_name,
+        avatar_url=avatar_url,
+    )
 
 
 @app.post("/v1/auth/signup", response_model=SignupResponse, status_code=201)
@@ -375,7 +495,12 @@ def get_authenticated_user_id(
         raise HTTPException(
             status_code=403, detail="A valid @uci.edu Supabase account is required"
         )
-    return database.get_or_create_user_id(identity.id, identity.email)
+    return database.get_or_create_user_id(
+        identity.id,
+        identity.email,
+        identity.display_name,
+        identity.avatar_url,
+    )
 
 
 @app.get("/health")
@@ -537,11 +662,37 @@ def submit_crowd_level(
     user_id: int = Depends(get_authenticated_user_id),
     database: db.Database = Depends(get_database),
 ) -> CrowdLevelSubmissionResponse:
-    updated_at = query.submit_crowd_level(database, user_id, payload.level)
+    require_arc_location(payload)
+    updated_at, karma_points, karma_awarded = query.submit_crowd_level(
+        database, user_id, payload.level
+    )
     return CrowdLevelSubmissionResponse(
         level=payload.level,
         updated_at=updated_at,
+        karma_points=karma_points,
+        karma_awarded=karma_awarded,
     )
+
+
+@app.get(
+    "/v1/leaderboard",
+    response_model=List[LeaderboardEntry],
+)
+def read_karma_leaderboard(
+    limit: int = Query(default=50, ge=1, le=100),
+    database: db.Database = Depends(get_database),
+    _: int = Depends(get_authenticated_user_id),
+) -> List[LeaderboardEntry]:
+    rows = query.get_karma_leaderboard(database, limit)
+    return [
+        LeaderboardEntry(
+            rank=rank,
+            name=name,
+            photo_url=photo_url,
+            karma=karma,
+        )
+        for rank, name, photo_url, karma in rows
+    ]
 
 
 @app.get(
