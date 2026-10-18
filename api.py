@@ -89,6 +89,25 @@ class CrowdScheduleResponse(BaseModel):
     values: List[float]
 
 
+class MachineCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=120)
+    location: Optional[str] = Field(default=None, max_length=120)
+
+
+class MachineStatusUpdate(BaseModel):
+    is_in_use: bool = Field(strict=True)
+
+
+class MachineResponse(BaseModel):
+    id: int
+    name: str
+    location: Optional[str] = None
+    is_in_use: bool
+    # Null until somebody first reports on this machine, which is not the same as having
+    # been reported free.
+    status_updated_at: Optional[datetime] = None
+
+
 class SupabaseIdentity(BaseModel):
     id: str
     email: Optional[str] = None
@@ -451,3 +470,66 @@ def read_crowd_level(
 ) -> CrowdLevelResponse:
     level, report_count = query.get_crowd_level(database)
     return CrowdLevelResponse(level=level, report_count=report_count)
+
+
+def machine_response(row: tuple) -> MachineResponse:
+    """Build a response from a `(id, name, location, is_in_use, status_updated_at)` row."""
+    machine_id, name, location, is_in_use, status_updated_at = row
+    return MachineResponse(
+        id=machine_id,
+        name=name,
+        location=location,
+        is_in_use=is_in_use,
+        status_updated_at=status_updated_at,
+    )
+
+
+@app.get(
+    "/v1/machines",
+    response_model=List[MachineResponse],
+    dependencies=[Depends(get_authenticated_user_id)],
+)
+def read_machines(
+    database: db.Database = Depends(get_database),
+) -> List[MachineResponse]:
+    return [machine_response(row) for row in query.list_machines(database)]
+
+
+@app.post(
+    "/v1/machines",
+    response_model=MachineResponse,
+    status_code=201,
+    dependencies=[Depends(get_authenticated_user_id)],
+)
+def create_machine(
+    payload: MachineCreate,
+    database: db.Database = Depends(get_database),
+) -> MachineResponse:
+    name = payload.name.strip()
+    if not name:
+        raise HTTPException(status_code=422, detail="name cannot be blank")
+    location = payload.location.strip() if payload.location is not None else None
+
+    machine = query.add_machine(database, name, location or None)
+    # Names are unique, so a miss here means one already exists. 409 rather than returning
+    # the existing row: the caller asked to create something and didn't.
+    if machine is None:
+        raise HTTPException(
+            status_code=409, detail="A machine with that name already exists"
+        )
+    return machine_response(machine)
+
+
+@app.put("/v1/machines/{machine_id}/status", response_model=MachineResponse)
+def update_machine_status(
+    machine_id: int,
+    payload: MachineStatusUpdate,
+    user_id: int = Depends(get_authenticated_user_id),
+    database: db.Database = Depends(get_database),
+) -> MachineResponse:
+    machine = query.set_machine_status(
+        database, machine_id, payload.is_in_use, user_id
+    )
+    if machine is None:
+        raise HTTPException(status_code=404, detail="No machine with that id")
+    return machine_response(machine)
