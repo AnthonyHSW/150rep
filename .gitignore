@@ -4,6 +4,7 @@
 
 ## User settings
 xcuserdata/
+*.xcuserstate
 
 ## Obj-C/Swift specific
 *.hmap
@@ -31,10 +32,16 @@ playground.xcworkspace
 
 .build/
 
-# Local API configuration
-.env
+# Python
 .venv/
 __pycache__/
+*.pyc
+
+# Local API configuration. `.env.example` stays tracked; the real one never is.
+.env
+
+# macOS
+.DS_Store
 
 # CocoaPods
 #

@@ -9,22 +9,22 @@ Using SWIFT for the front end of the app, using SQL and Supabase for the databas
 The current API stores each visit as a `presence = TRUE` row in `user_data`,
 using a time-zone-aware `timestamp`. It can return daily counts in the user's
 IANA time zone; multiple visits on one day are counted separately. The
-standalone [`workout_attendance.sql`](./workout_attendance.sql) file describes an
+standalone [`workout_attendance.sql`](./database/schemas/workout_attendance.sql) file describes an
 alternative table and is not used by this API.
 
 ## Workout session tables
 
 To persist workout sessions, exercise logs, and sets in Supabase, run
-[`workout_photos.sql`](./workout_photos.sql) first if the photo table and Storage
+[`workout_photos.sql`](./database/schemas/workout_photos.sql) first if the photo table and Storage
 bucket are not already installed, then run
-[`workout_sync.sql`](./workout_sync.sql) in the Supabase SQL editor. The migration
+[`workout_sync.sql`](./database/schemas/workout_sync.sql) in the Supabase SQL editor. The migration
 creates `workout_sessions`, `exercise_logs`, and `exercise_sets`, configures
 per-user row-level security for exact `@uci.edu` addresses, and connects existing
 photo metadata to sessions with a `NOT VALID` foreign key so legacy rows are not
 rejected.
 
 To store time-based exercises, run
-[`workout_cardio.sql`](./workout_cardio.sql) after `workout_sync.sql`. It adds
+[`workout_cardio.sql`](./database/schemas/workout_cardio.sql) after `workout_sync.sql`. It adds
 `exercise_logs.is_cardio` (default `false`) and nullable
 `exercise_sets.duration_seconds` (nonnegative integer, in seconds). It also
 makes `weight` and `reps` nullable and removes their zero defaults, allowing
@@ -53,8 +53,8 @@ ALTER TABLE public.workout_photos
 
 ### Live workout visibility
 
-Run [`active_workouts.sql`](./active_workouts.sql) in Supabase SQL Editor after
-[`workout_sync.sql`](./workout_sync.sql) to add the session profile snapshot
+Run [`active_workouts.sql`](./database/schemas/active_workouts.sql) in Supabase SQL Editor after
+[`workout_sync.sql`](./database/schemas/workout_sync.sql) to add the session profile snapshot
 fields and live heartbeat, and allow authenticated users to read active
 workouts, their exercise logs, and sets while the heartbeat is newer than ten
 minutes. The policies do not expose workout photos or permit watchers to write
@@ -75,7 +75,7 @@ are handled by Supabase Auth and are not written to the app's database.
 ### Configure and run
 
 1. Ensure the existing `users` table is created, then run
-   [`api_migration.sql`](./api_migration.sql) in the Supabase SQL editor. It
+   [`api_migration.sql`](./database/migrations/api_migration.sql) in the Supabase SQL editor. It
    creates `user_data` and adds the Supabase-user link.
    The timestamp conversion assumes existing `user_data.timestamp` values were
    stored in UTC.
@@ -85,8 +85,8 @@ are handled by Supabase Auth and are not written to the app's database.
 3. Install dependencies and start the API:
 
    ```sh
-   python -m pip install -r requirements.txt
-   uvicorn api:app --host 0.0.0.0 --port 8000
+   python -m pip install -r backend/requirements.txt
+   cd backend && uvicorn api:app --host 0.0.0.0 --port 8000
    ```
 
 Use the Supabase database connection string with SSL for `DATABASE_URL`. For a
@@ -179,7 +179,7 @@ check and does not verify database connectivity.
 ### Machine inventory and availability
 
 After `api_migration.sql` has been run, run
-[`machine_status.sql`](./machine_status.sql) in the Supabase SQL editor. It
+[`machine_status.sql`](./database/schemas/machine_status.sql) in the Supabase SQL editor. It
 creates:
 
 - `public.machines` for the gym's machine inventory (`id`, `name`, optional
@@ -250,7 +250,7 @@ The response contains `machine_id`, the saved `is_in_use` value, and
 
 ### Crowd level
 
-Run the updated [`api_migration.sql`](./api_migration.sql) in Supabase SQL Editor
+Run the updated [`api_migration.sql`](./database/migrations/api_migration.sql) in Supabase SQL Editor
 to create the private `crowd_reports` table. Row-level security is enabled, so
 the Swift app should call the API rather than querying this table through
 PostgREST.
@@ -294,7 +294,7 @@ accepted submission awards one karma point at most once per 30-minute window;
 further submissions still update the current crowd report but do not add more
 points in that window.
 
-Before using karma, run [`karma_migration.sql`](./karma_migration.sql) in the
+Before using karma, run [`karma_migration.sql`](./database/migrations/karma_migration.sql) in the
 Supabase SQL editor after `api_migration.sql`. It adds the all-time karma counter,
 the cooldown timestamp, and an optional avatar URL to `public.users`. The API
 syncs the user's display name and HTTPS avatar URL from their verified Supabase
@@ -356,7 +356,7 @@ outside those hours when there are no recent reports.
 The workbook's “Page grid” is a separate illustrative 0–100 weekly schedule,
 not live measurements and not 1–10 crowd votes. To load its 126 Monday–Sunday,
 6 AM–11 PM values into Supabase, paste and run
-[`seed_crowd_schedule.sql`](./seed_crowd_schedule.sql) in the Supabase SQL
+[`seed_crowd_schedule.sql`](./database/seeds/seed_crowd_schedule.sql) in the Supabase SQL
 Editor. It creates `public.crowd_schedule`, enables read-only access for
 `anon` and `authenticated` roles, and safely updates matching schedule slots
 when run again. `day_of_week` uses ISO numbering (Monday = 1, Sunday = 7);
@@ -399,10 +399,10 @@ Saturday. It returns values divided by 10, ordered from 6 AM through 11 PM:
 ```
 
 For example, request `/v1/crowd-schedule?e=1` to get Monday's values. Run
-[`seed_crowd_schedule.sql`](./seed_crowd_schedule.sql) in Supabase before using
+[`seed_crowd_schedule.sql`](./database/seeds/seed_crowd_schedule.sql) in Supabase before using
 this endpoint.
 
-For UI testing, run [`seed_demo_crowd_reports.sql`](./seed_demo_crowd_reports.sql)
+For UI testing, run [`seed_demo_crowd_reports.sql`](./database/seeds/seed_demo_crowd_reports.sql)
 in a development/test Supabase project after running `api_migration.sql`. It
 creates two synthetic users and repeatably sets their reports to 4 and 6, so the
 response becomes `{"level": 5.0, "report_count": 2}` for 30 minutes after it is
@@ -431,7 +431,7 @@ WHERE email IN (
 ### Optional demo attendance data
 
 To populate the current Los Angeles calendar week with four visits for visual
-testing, run [`seed_demo_attendance.sql`](./seed_demo_attendance.sql) in the
+testing, run [`seed_demo_attendance.sql`](./database/seeds/seed_demo_attendance.sql) in the
 Supabase SQL editor after replacing `REPLACE_WITH_TARGET_EMAIL` with the email
 for an existing `users` row. The script adds only the visits needed to reach
 four; it does not delete or label them as demo data. Prefer a dedicated test
