@@ -38,6 +38,7 @@ struct rep150App: App {
                 ExerciseSet.self,
                 WorkoutPhoto.self,
                 PendingDeletion.self,
+                CustomExercise.self,
             ]
         )
     }

@@ -29,8 +29,16 @@ struct ExerciseCatalog {
         return lines.compactMap { line in
             guard !line.isEmpty else { return nil }
             let fields = line.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }
-            guard fields.count == 4 else { return nil }
-            return Exercise(id: fields[0], name: fields[1], primaryMuscle: fields[2], imageName: fields[3])
+            // Four fields is the pre-`isCardio` shape, kept readable so an older CSV still
+            // loads as a catalog of weight-and-reps exercises rather than loading as nothing.
+            guard fields.count >= 4 else { return nil }
+            return Exercise(
+                id: fields[0],
+                name: fields[1],
+                primaryMuscle: fields[2],
+                imageName: fields[3],
+                isCardio: fields.count > 4 && fields[4].lowercased() == "true"
+            )
         }
     }
 }

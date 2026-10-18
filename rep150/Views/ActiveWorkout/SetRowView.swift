@@ -3,10 +3,16 @@ import SwiftUI
 enum SetField: Hashable {
     case weight(UUID)
     case reps(UUID)
+    case minutes(UUID)
+    case seconds(UUID)
 }
 
 struct SetRowView: View {
     @Bindable var set: ExerciseSet
+    /// Swaps the two entry fields from weight and reps to minutes and seconds. Passed down
+    /// from the exercise rather than read off the set, since it is the exercise that decides
+    /// what its sets measure.
+    var isCardio: Bool = false
     let previousLabel: String?
     var focusedField: FocusState<SetField?>.Binding
     let onToggleComplete: () -> Void
@@ -32,6 +38,13 @@ struct SetRowView: View {
     /// updates on every keystroke.
     @State private var weightDraft: String?
 
+    /// The same treatment for the time fields, for a sharper reason: minutes and seconds are
+    /// two views of one stored number, so typing "90" into seconds would re-split to 1:30 and
+    /// rewrite the field to "30" under the user's finger. Holding the raw text until focus
+    /// leaves lets them type, and normalizing on commit is what turns 90 into 1:30.
+    @State private var minutesDraft: String?
+    @State private var secondsDraft: String?
+
     private var weightText: Binding<String> {
         Binding(
             get: {
@@ -53,6 +66,50 @@ struct SetRowView: View {
         )
     }
 
+    // MARK: - Time entry
+
+    private var storedMinutes: Int { (set.durationSeconds ?? 0) / 60 }
+    private var storedSeconds: Int { (set.durationSeconds ?? 0) % 60 }
+
+    private var minutesText: Binding<String> {
+        Binding(
+            get: {
+                if let minutesDraft { return minutesDraft }
+                return storedMinutes == 0 ? "" : "\(storedMinutes)"
+            },
+            set: { typed in
+                minutesDraft = typed
+                commitDuration()
+            }
+        )
+    }
+
+    private var secondsText: Binding<String> {
+        Binding(
+            get: {
+                if let secondsDraft { return secondsDraft }
+                return storedSeconds == 0 ? "" : "\(storedSeconds)"
+            },
+            set: { typed in
+                secondsDraft = typed
+                commitDuration()
+            }
+        )
+    }
+
+    /// Folds whatever is in the two fields back into one duration.
+    ///
+    /// A cleared field reads as zero, not as "keep what was stored" — an empty draft is the
+    /// user deleting the value, and falling back to the stored number would make it
+    /// un-erasable. Both at zero stores nil rather than 0, so an untouched set stays blank
+    /// instead of claiming a hold of no length.
+    private func commitDuration() {
+        let minutes = minutesDraft.map { Int($0) ?? 0 } ?? storedMinutes
+        let seconds = secondsDraft.map { Int($0) ?? 0 } ?? storedSeconds
+        let total = minutes * 60 + seconds
+        set.durationSeconds = total > 0 ? total : nil
+    }
+
     /// 0 at rest, 1 once the swipe is far enough to commit — drives how emphatic the
     /// backdrop looks, so the row reads as armed before the finger lifts.
     private var swipeProgress: CGFloat {
@@ -71,6 +128,8 @@ struct SetRowView: View {
             // Focus gone: drop the raw text so the field falls back to the stored value,
             // rounded and in whatever unit is now selected.
             if field != .weight(set.id) { weightDraft = nil }
+            if field != .minutes(set.id) { minutesDraft = nil }
+            if field != .seconds(set.id) { secondsDraft = nil }
         }
         .contextMenu {
             Button("Delete Set", systemImage: "trash", role: .destructive, action: onDelete)
@@ -93,21 +152,13 @@ struct SetRowView: View {
                 .frame(width: 80, height: Self.rowHeight, alignment: .leading)
                 .lineLimit(1)
 
-            TextField("0", text: weightText)
-                .keyboardType(.decimalPad)
-                .multilineTextAlignment(.center)
-                .frame(width: 60, height: Self.rowHeight)
-                .background(set.isCompleted ? Color.green.opacity(0.25) : AppColors.pageBackground)
-                .cornerRadius(8)
-                .focused(focusedField, equals: .weight(set.id))
-
-            TextField("0", text: repsText)
-                .keyboardType(.numberPad)
-                .multilineTextAlignment(.center)
-                .frame(width: 60, height: Self.rowHeight)
-                .background(set.isCompleted ? Color.green.opacity(0.25) : AppColors.pageBackground)
-                .cornerRadius(8)
-                .focused(focusedField, equals: .reps(set.id))
+            if isCardio {
+                entryField(text: minutesText, keyboard: .numberPad, field: .minutes(set.id))
+                entryField(text: secondsText, keyboard: .numberPad, field: .seconds(set.id))
+            } else {
+                entryField(text: weightText, keyboard: .decimalPad, field: .weight(set.id))
+                entryField(text: repsText, keyboard: .numberPad, field: .reps(set.id))
+            }
 
             Button(action: onToggleComplete) {
                 Image(systemName: set.isCompleted ? "checkmark.circle.fill" : "checkmark.circle")
@@ -120,6 +171,22 @@ struct SetRowView: View {
         .padding(.horizontal, 4)
         .background(set.isCompleted ? Color.green.opacity(0.12) : AppColors.contentSurface)
         .cornerRadius(8)
+    }
+
+    /// The two entry boxes are identical but for their binding, keyboard, and focus tag —
+    /// spelled once so the weight pair and the time pair can't drift apart visually.
+    private func entryField(
+        text: Binding<String>,
+        keyboard: UIKeyboardType,
+        field: SetField
+    ) -> some View {
+        TextField("0", text: text)
+            .keyboardType(keyboard)
+            .multilineTextAlignment(.center)
+            .frame(width: 60, height: Self.rowHeight)
+            .background(set.isCompleted ? Color.green.opacity(0.25) : AppColors.pageBackground)
+            .cornerRadius(8)
+            .focused(focusedField, equals: field)
     }
 
     /// Revealed as the row slides right; the icon only shows once there's room for it.

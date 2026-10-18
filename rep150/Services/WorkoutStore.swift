@@ -94,6 +94,25 @@ struct WorkoutStore {
         try save()
     }
 
+    /// Moves a session on the calendar: when it started, and — for one that has finished —
+    /// when it ended.
+    ///
+    /// `endTime` is clamped to `startTime` rather than rejected. A session whose end precedes
+    /// its start reports a negative duration everywhere it is shown, and pushing the end
+    /// forward is the one resolution that keeps the start the user just chose.
+    ///
+    /// A `nil` `endTime` leaves the stored one alone, so rescheduling a workout that is still
+    /// running can't accidentally mark it finished.
+    func reschedule(_ session: WorkoutSession, startTime: Date, endTime: Date? = nil) throws {
+        session.startTime = startTime
+        if let endTime {
+            session.endTime = max(startTime, endTime)
+        } else if let existingEnd = session.endTime {
+            session.endTime = max(startTime, existingEnd)
+        }
+        try save()
+    }
+
     /// Deletes a session outright. The cascade rules on `WorkoutSession.exercises` and
     /// `ExerciseLog.sets` take its exercises and sets with it.
     func discard(_ session: WorkoutSession) throws {
@@ -153,14 +172,19 @@ struct WorkoutStore {
             name: exercise.name,
             primaryMuscle: exercise.primaryMuscle,
             imageName: exercise.imageName,
-            orderIndex: session.exercises.count
+            orderIndex: session.exercises.count,
+            isCardio: exercise.isCardio
         )
 
         // Seed the first set from the last time this exercise was logged, so the user is
-        // adjusting a sensible starting point instead of typing from zero.
+        // adjusting a sensible starting point instead of typing from zero. A time-based
+        // exercise seeds its duration and nothing else — weight and reps stay at zero,
+        // because they are not what it measures.
         let previous = previousSets(forExerciseId: exercise.id).first
         exerciseLog.sets.append(
-            ExerciseSet(setNumber: 1, weight: previous?.weight ?? 0, reps: previous?.reps ?? 0)
+            exercise.isCardio
+                ? ExerciseSet(setNumber: 1, durationSeconds: previous?.durationSeconds)
+                : ExerciseSet(setNumber: 1, weight: previous?.weight ?? 0, reps: previous?.reps ?? 0)
         )
 
         exerciseLog.workoutSession = session
@@ -181,11 +205,17 @@ struct WorkoutStore {
 
     func addSet(to exerciseLog: ExerciseLog) throws {
         let lastSet = exerciseLog.sets.max { $0.setNumber < $1.setNumber }
-        let newSet = ExerciseSet(
-            setNumber: (lastSet?.setNumber ?? 0) + 1,
-            weight: lastSet?.weight ?? 0,
-            reps: lastSet?.reps ?? 0
-        )
+        // Carries the previous set forward, in whichever terms this exercise is measured.
+        let newSet = exerciseLog.isCardio
+            ? ExerciseSet(
+                setNumber: (lastSet?.setNumber ?? 0) + 1,
+                durationSeconds: lastSet?.durationSeconds
+            )
+            : ExerciseSet(
+                setNumber: (lastSet?.setNumber ?? 0) + 1,
+                weight: lastSet?.weight ?? 0,
+                reps: lastSet?.reps ?? 0
+            )
         exerciseLog.sets.append(newSet)
         try save()
     }

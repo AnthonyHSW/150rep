@@ -18,6 +18,14 @@ final class ExerciseSet {
     var isCompleted: Bool
     var completedAt: Date?
 
+    /// How long the set was held, for an exercise whose log is `isCardio`. Nil on every
+    /// weight-and-reps set, and nil rather than zero on a time-based set nobody has filled in
+    /// yet — "0:00" reads as a hold that happened and lasted no time.
+    ///
+    /// `weight` and `reps` stay non-optional and sit at zero for these sets; the sync layer is
+    /// what turns them into the explicit nulls the server stores.
+    var durationSeconds: Int?
+
     var exerciseLog: ExerciseLog?
 
     var setType: SetType {
@@ -31,6 +39,7 @@ final class ExerciseSet {
         setType: SetType = .normal,
         weight: Double = 0.0,
         reps: Int = 0,
+        durationSeconds: Int? = nil,
         isCompleted: Bool = false,
         completedAt: Date? = nil
     ) {
@@ -39,6 +48,7 @@ final class ExerciseSet {
         self.setTypeRaw = setType.rawValue
         self.weight = weight
         self.reps = reps
+        self.durationSeconds = durationSeconds
         self.isCompleted = isCompleted
         self.completedAt = completedAt
     }

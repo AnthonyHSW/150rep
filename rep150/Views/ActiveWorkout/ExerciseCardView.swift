@@ -40,11 +40,12 @@ struct ExerciseCardView: View {
             )
 
             if !isCollapsed {
-                SetColumnHeaderView()
+                SetColumnHeaderView(isCardio: exercise.isCardio)
 
                 ForEach(sortedSets) { set in
                     SetRowView(
                         set: set,
+                        isCardio: exercise.isCardio,
                         previousLabel: previousLabel(forSetNumber: set.setNumber),
                         focusedField: focusedField,
                         onToggleComplete: { viewModel.toggleSetCompletion(set) },
@@ -76,6 +77,11 @@ struct ExerciseCardView: View {
         let previousSets = viewModel.previousSets(for: exercise)
         guard let previous = previousSets.first(where: { $0.setNumber == setNumber }) ?? previousSets.last else {
             return nil
+        }
+        if exercise.isCardio {
+            // A duration with nothing recorded is not a previous performance to show.
+            guard let seconds = previous.durationSeconds else { return nil }
+            return TimeInterval(seconds).workoutClockText
         }
         return "\(weightUnit.displayText(fromKilograms: previous.weight)) \(weightUnit.abbreviation) × \(previous.reps)"
     }
@@ -144,21 +150,29 @@ struct ExerciseCardHeaderView: View {
     }
 }
 
-/// Column headings (`SET`, `PREVIOUS`, the weight unit, `REPS`) shown above each exercise's
-/// set rows.
+/// Column headings (`SET`, `PREVIOUS`, then either the weight unit and `REPS` or `MIN` and
+/// `SEC`) shown above each exercise's set rows.
 struct SetColumnHeaderView: View {
+    var isCardio: Bool = false
+
     @AppStorage(PreferenceKey.weightUnit) private var weightUnit = WeightUnit.default
 
     var body: some View {
         HStack(spacing: 8) {
             Text("SET").frame(width: 32, alignment: .center)
             Text("PREVIOUS").frame(width: 80, alignment: .leading)
-            Text(weightUnit.abbreviation.uppercased()).frame(width: 60, alignment: .center)
-            Text("REPS").frame(width: 60, alignment: .center)
+            Text(isCardio ? "MIN" : weightUnit.abbreviation.uppercased())
+                .frame(width: 60, alignment: .center)
+            Text(isCardio ? "SEC" : "REPS").frame(width: 60, alignment: .center)
             Spacer().frame(width: 44)
         }
         .font(.system(size: 11, weight: .semibold))
         .foregroundColor(.secondary)
         .padding(.horizontal, 4)
+        // The set rows below sit in a ZStack whose delete backdrop spans the card, so their
+        // content is pinned to the leading edge. These headings are fixed-width with nothing
+        // expanding, so the card's centre alignment floated them right of the columns they
+        // label — by half the card's leftover width, which is why the drift grew across the row.
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }

@@ -87,6 +87,9 @@ struct LiveExercise: Identifiable, Decodable {
     let imageName: String
     let orderIndex: Int
     let sets: [LiveSet]
+    /// Whether this exercise is measured in time rather than weight and reps. Defaulted on
+    /// decode so a row written before the column existed watches as a weight exercise.
+    let isCardio: Bool
 
     enum CodingKeys: String, CodingKey {
         case id, name
@@ -94,15 +97,30 @@ struct LiveExercise: Identifiable, Decodable {
         case imageName = "image_name"
         case orderIndex = "order_index"
         case sets = "exercise_sets"
+        case isCardio = "is_cardio"
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(UUID.self, forKey: .id)
+        name = try container.decode(String.self, forKey: .name)
+        primaryMuscle = try container.decode(String.self, forKey: .primaryMuscle)
+        imageName = try container.decode(String.self, forKey: .imageName)
+        orderIndex = try container.decode(Int.self, forKey: .orderIndex)
+        sets = try container.decode([LiveSet].self, forKey: .sets)
+        isCardio = try container.decodeIfPresent(Bool.self, forKey: .isCardio) ?? false
     }
 
     var orderedSets: [LiveSet] {
         sets.sorted { $0.setNumber < $1.setNumber }
     }
 
+    /// Matches `ExerciseLog.totalVolume`: a time-based exercise contributes nothing, so a
+    /// watcher and the lifter read the same number for the same workout.
     var totalVolume: Double {
-        sets.filter(\.isCompleted)
-            .reduce(0.0) { $0 + ($1.weight * Double($1.reps)) }
+        guard !isCardio else { return 0 }
+        return sets.filter(\.isCompleted)
+            .reduce(0.0) { $0 + ((($1.weight ?? 0)) * Double($1.reps ?? 0)) }
     }
 }
 
@@ -113,14 +131,20 @@ struct LiveSet: Identifiable, Decodable {
     private let setType: String
     /// Kilograms, as stored. Converted for display at the edge, the same as every other
     /// weight in the app.
-    let weight: Double
-    let reps: Int
+    ///
+    /// Optional because a time-based set stores null here — decoding these as non-optional
+    /// would fail the whole fetch, taking every other workout in the feed down with it.
+    let weight: Double?
+    let reps: Int?
+    /// Seconds held, on a set belonging to an `isCardio` exercise.
+    let durationSeconds: Int?
     let isCompleted: Bool
 
     enum CodingKeys: String, CodingKey {
         case id, weight, reps
         case setNumber = "set_number"
         case setType = "set_type"
+        case durationSeconds = "duration_seconds"
         case isCompleted = "is_completed"
     }
 

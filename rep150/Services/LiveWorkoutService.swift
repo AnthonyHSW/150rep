@@ -22,8 +22,8 @@ struct LiveWorkoutService {
     /// the feed refreshes on a timer.
     private static let selectColumns = """
         id,user_id,title,start_time,last_active_at,owner_name,owner_avatar_url,\
-        exercise_logs(id,name,primary_muscle,image_name,order_index,\
-        exercise_sets(id,set_number,set_type,weight,reps,is_completed))
+        exercise_logs(id,name,primary_muscle,image_name,order_index,is_cardio,\
+        exercise_sets(id,set_number,set_type,weight,reps,duration_seconds,is_completed))
         """
 
     /// Every live workout except the signed-in user's own.

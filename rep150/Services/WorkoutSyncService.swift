@@ -58,6 +58,7 @@ private struct ExerciseLogRow: Encodable {
     let imageName: String
     let orderIndex: Int
     let notes: String?
+    let isCardio: Bool
 
     enum CodingKeys: String, CodingKey {
         case id, name, notes
@@ -66,17 +67,24 @@ private struct ExerciseLogRow: Encodable {
         case primaryMuscle = "primary_muscle"
         case imageName = "image_name"
         case orderIndex = "order_index"
+        case isCardio = "is_cardio"
     }
 }
 
 /// Row written to `public.exercise_sets`.
+///
+/// Weight/reps and duration are mutually exclusive: a time-based set sends the first pair as
+/// null and carries `duration_seconds`, and a weight set does the reverse. Nulls rather than
+/// zeros, because "0 kg × 0 reps" reads as a logged set left empty, which is a different claim
+/// from "this set isn't measured that way".
 private struct ExerciseSetRow: Encodable {
     let id: UUID
     let exerciseLogId: UUID
     let setNumber: Int
     let setType: String
-    let weight: Double
-    let reps: Int
+    let weight: Double?
+    let reps: Int?
+    let durationSeconds: Int?
     let isCompleted: Bool
     let completedAt: Date?
 
@@ -85,8 +93,26 @@ private struct ExerciseSetRow: Encodable {
         case exerciseLogId = "exercise_log_id"
         case setNumber = "set_number"
         case setType = "set_type"
+        case durationSeconds = "duration_seconds"
         case isCompleted = "is_completed"
         case completedAt = "completed_at"
+    }
+
+    /// Hand-written for the same reason as `WorkoutSessionRow`: the synthesized version uses
+    /// `encodeIfPresent`, and an omitted column in an upsert leaves whatever the server
+    /// already had. These nulls have to travel — they are how an exercise corrected from
+    /// weight to time stops reporting the weight it used to have.
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encode(exerciseLogId, forKey: .exerciseLogId)
+        try container.encode(setNumber, forKey: .setNumber)
+        try container.encode(setType, forKey: .setType)
+        try container.encode(weight, forKey: .weight)
+        try container.encode(reps, forKey: .reps)
+        try container.encode(durationSeconds, forKey: .durationSeconds)
+        try container.encode(isCompleted, forKey: .isCompleted)
+        try container.encode(completedAt, forKey: .completedAt)
     }
 }
 
@@ -248,7 +274,8 @@ struct WorkoutSyncService {
                             primaryMuscle: $0.primaryMuscle,
                             imageName: $0.imageName,
                             orderIndex: $0.orderIndex,
-                            notes: $0.notes
+                            notes: $0.notes,
+                            isCardio: $0.isCardio
                         )
                     },
                     onConflict: "id"
@@ -263,8 +290,9 @@ struct WorkoutSyncService {
                     exerciseLogId: exerciseLog.id,
                     setNumber: set.setNumber,
                     setType: set.setTypeRaw,
-                    weight: set.weight,
-                    reps: set.reps,
+                    weight: exerciseLog.isCardio ? nil : set.weight,
+                    reps: exerciseLog.isCardio ? nil : set.reps,
+                    durationSeconds: exerciseLog.isCardio ? set.durationSeconds : nil,
                     isCompleted: set.isCompleted,
                     completedAt: set.completedAt
                 )

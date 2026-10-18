@@ -1,11 +1,36 @@
-id,name,primaryMuscle,imageName
-bench-press,Bench Press,Chest,bench-press
-back-squat,Back Squat,Quads,back-squat
-deadlift,Deadlift,Back,deadlift
-overhead-press,Overhead Press,Shoulders,overhead-press
-barbell-row,Barbell Row,Back,barbell-row
-pull-up,Pull-Up,Back,pull-up
-bicep-curl,Bicep Curl,Arms,bicep-curl
-tricep-pushdown,Tricep Pushdown,Arms,tricep-pushdown
-leg-press,Leg Press,Quads,leg-press
-plank,Plank,Core,plank
+id,name,primaryMuscle,imageName,isCardio
+bench-press,Bench Press,Chest,bench-press,false
+back-squat,Back Squat,Quads,back-squat,false
+deadlift,Deadlift,Back,deadlift,false
+overhead-press,Overhead Press,Shoulders,overhead-press,false
+barbell-row,Barbell Row,Back,barbell-row,false
+pull-up,Pull-Up,Back,pull-up,false
+bicep-curl,Bicep Curl,Arms,bicep-curl,false
+tricep-pushdown,Tricep Pushdown,Arms,tricep-pushdown,false
+leg-press,Leg Press,Quads,leg-press,false
+plank,Plank,Core,plank,true
+dragon-flag,Dragon Flag,Core,dragon-flag,true
+leg-extension,Leg Extension,Quads,leg-extension,false
+hamstring-curl,Hamstring Curl,Hamstrings,hamstring-curl,false
+sitting-calf-raise,Sitting Calf Raise,Calves,sitting-calf-raise,false
+cable-bicep-curl,Cable Bicep Curl,Arms,cable-bicep-curl,false
+tricep-dip,Tricep Dip,Arms,tricep-dip,false
+hip-thrust,Hip Thrust,Glutes,hip-thrust,false
+dumbbell-shoulder-press,Dumbbell Shoulder Press,Shoulders,dumbbell-shoulder-press,false
+machine-shoulder-press,Machine Shoulder Press,Shoulders,machine-shoulder-press,false
+machine-dip,Machine Dip,Arms,machine-dip,false
+chest-press,Chest Press,Chest,chest-press,false
+machine-lat-pulldown,Machine Lat Pulldown,Back,machine-lat-pulldown,false
+incline-dumbbell-shoulder-press,Incline Dumbbell Shoulder Press,Shoulders,incline-dumbbell-shoulder-press,false
+barbell-curl,Barbell Curl,Arms,barbell-curl,false
+hack-squat,Hack Squat,Quads,hack-squat,false
+leg-raise,Leg Raise,Core,leg-raise,false
+back-extension,Back Extension,Back,back-extension,false
+machine-crunch,Machine Crunch,Core,machine-crunch,false
+elliptical,Elliptical,Cardio,elliptical,true
+stairmaster,Stairmaster,Cardio,stairmaster,true
+horizontal-elliptical,Horizontal Elliptical,Cardio,horizontal-elliptical,true
+dead-hang,Dead Hang,Back,dead-hang,true
+sled,Sled,Quads,sled,false
+bicycle,Bicycle,Cardio,bicycle,true
+rowing-machine,Rowing Machine,Cardio,rowing-machine,true

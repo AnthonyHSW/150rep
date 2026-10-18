@@ -151,7 +151,7 @@ private struct LiveExerciseCard: View {
 
                     Spacer()
 
-                    Text("\(weightUnit.displayText(fromKilograms: set.weight)) \(weightUnit.abbreviation) × \(set.reps)")
+                    Text(measurement(of: set))
                         .font(.system(size: 13, weight: .medium))
                         .monospacedDigit()
                         .foregroundColor(set.isCompleted ? .primary : .secondary)
@@ -162,6 +162,19 @@ private struct LiveExerciseCard: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(AppColors.contentSurface)
         .cornerRadius(12)
+    }
+
+    /// What the set amounted to, in whichever terms its exercise is measured. An em dash for
+    /// a set with nothing filled in — the owner is mid-workout, so blanks are expected, and
+    /// "0 kg × 0" would read as a set they did and got nothing out of.
+    private func measurement(of set: LiveSet) -> String {
+        if exercise.isCardio {
+            guard let seconds = set.durationSeconds else { return "—" }
+            return TimeInterval(seconds).workoutClockText
+        }
+
+        guard let weight = set.weight, let reps = set.reps else { return "—" }
+        return "\(weightUnit.displayText(fromKilograms: weight)) \(weightUnit.abbreviation) × \(reps)"
     }
 }
 
