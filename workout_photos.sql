@@ -1,14 +1,8 @@
 -- Workout photo metadata.
 --
--- NOTE ON session_id: the original spec declared this as
---     session_id uuid references public.workout_sessions(id) on delete cascade
--- but there is no `workout_sessions` table in this project — workout sessions live only in
--- the app's local SwiftData store and are never written to Postgres. That foreign key, and
--- the RLS policy that joined through it, would both fail on creation.
---
--- So `session_id` is kept as a plain uuid (the on-device session id, used to group a
--- workout's photos) and ownership is carried directly on the row via `user_id`. If workout
--- sessions are ever synced to Postgres, this can become a real foreign key.
+-- `session_id` is initially a plain UUID so this file can be installed independently.
+-- Run workout_sync.sql afterward to create public.workout_sessions and attach the
+-- ON DELETE CASCADE foreign key without rejecting any existing photo rows.
 
 create table if not exists public.workout_photos (
     id uuid primary key default gen_random_uuid(),
@@ -56,9 +50,9 @@ create policy "Users manage own workout photo files"
     to authenticated
     using (
         bucket_id = 'workout-photos'
-        and (storage.foldername(name))[1] = auth.uid()::text
+        and lower((storage.foldername(name))[1]) = lower(auth.uid()::text)
     )
     with check (
         bucket_id = 'workout-photos'
-        and (storage.foldername(name))[1] = auth.uid()::text
+        and lower((storage.foldername(name))[1]) = lower(auth.uid()::text)
     );

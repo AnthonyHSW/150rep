@@ -12,6 +12,35 @@ IANA time zone; multiple visits on one day are counted separately. The
 standalone [`workout_attendance.sql`](./workout_attendance.sql) file describes an
 alternative table and is not used by this API.
 
+## Workout session tables
+
+To persist workout sessions, exercise logs, and sets in Supabase, run
+[`workout_photos.sql`](./workout_photos.sql) first if the photo table and Storage
+bucket are not already installed, then run
+[`workout_sync.sql`](./workout_sync.sql) in the Supabase SQL editor. The migration
+creates `workout_sessions`, `exercise_logs`, and `exercise_sets`, configures
+per-user row-level security for exact `@uci.edu` addresses, and connects existing
+photo metadata to sessions with a `NOT VALID` foreign key so legacy rows are not
+rejected.
+
+These tables are accessed directly through Supabase PostgREST with the signed-in
+user's Supabase client; this migration does not add FastAPI routes or modify the
+Swift app. After existing workouts and photos are synced, check for orphaned photo
+rows before validating the foreign key:
+
+```sql
+SELECT p.id, p.session_id, p.created_at
+FROM public.workout_photos AS p
+WHERE NOT EXISTS (
+    SELECT 1
+    FROM public.workout_sessions AS s
+    WHERE s.id = p.session_id
+);
+
+ALTER TABLE public.workout_photos
+    VALIDATE CONSTRAINT workout_photos_session_id_fkey;
+```
+
 ## HTTP API for the Swift app
 
 The Swift client calls this API over HTTPS; it must not connect directly to
